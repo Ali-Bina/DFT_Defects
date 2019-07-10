@@ -6,13 +6,14 @@ Created on Wed Jun 26 15:15:39 2019
 """
 
 import numpy as np
-
+from scipy.special import erfc 
 
         
 def birch(V, V0, K0, K1):
     term1 = 1 / (K1 * (K1 - 1)) * (V / V0 ) ** (1 - K1)
     term2 = V / (K1 * V0) - 1 / (K1 - 1)
     return E0 + K0 * V0 * (term1 + term2)
+
 def uniformK(a1, a2, a3, n):
     """Creates a uniform n by n /by n k-space grid give Direct lattice vectors as input
  
@@ -66,23 +67,27 @@ def readPotential(file):
         nz = int(line[0])
         vz = np.array([line[1], line[2], line[3]])
 
-    data = np.zeros( (nx, ny, nz) )
-
-    for i in range(nx):
-        
-        for j in range(ny):
+        for i in range(natoms):
+            file.readline()
             
-            k = 0
-            while (k < nz):
-                
-                line = file.readline().split()
+        data = np.zeros( (nx, ny, nz) )
 
-                for value in line:
-                    
-                    data[i, j, k] = float(value)
-                    k += 1
+        for i in range(nx):
         
-    return potential
+            for j in range(ny):
+            
+                k = 0
+                while (k < nz):
+                
+                    line = file.readline().split()
+
+                   
+                    for value in line:
+                        
+                        data[i, j, k] = float(value)
+                        k += 1
+        
+    return data
         
                 
 def potAlign(Host, Defect, tol):
@@ -218,9 +223,7 @@ class cell(object):
         return string
             
     def makeCube():
-        """NVM not so easy :(, need to know crystal symmetries"""
-        """Changes atomic basis to cubic for to simplify super cell calculations"""
-
+      
         #cartesian basis
         cube = np.array([ [1, 0, 0],
                           [0, 1, 0],
@@ -241,7 +244,60 @@ class atom(cell):
     def __init__(self, name, pos):
         self.name = name
         self.pos = pos
-        
+
+def uniqSites(cell):
+    """Identifies wychoff sites in the super cell, used as condidate sites for vacancies and interstitials
+    
+       1.Find space group
+       2. Perform symmetry operations on atomic basis
+       3. Identify sites equivalent through symmetry within tolerance
+       4. Return a set of symmetry inequivalent atoms"""
+    
+def Ewald(cell, n, convP):
+    """Ewald sum for computing the Madelung energy of a periodic array of point charges neutralized        by a uniform background
+       if EPS is a tensor, compute anisotropic form of sum
+    """
+
+    #Direct lattice volume
+    V = np.dot(lattice[:, 0], np.cross(lattice[:, 1], lattice[:, 2]))
+
+    #reciprocal lattice vectors
+    rec = np.empty((3,3))
+    rec[:, 0] = np.cross(lattice[:, 1], lattice[:, 2]) / V
+    rec[:, 1] = np.cross(lattice[:, 2], lattice[:, 0]) / V
+    rec[:, 2] = np.cross(lattice[:, 0], lattice[:, 1]) / V
+
+   
+    #reciprocal lattice sum
+    sumRec = 0
+
+    for i in range(n):
+        for j in range(n):
+            for k in range(n):
+
+                if i != 0 and j != 0 and k != 0:
+                    
+                    G = i * rec[:, 0] + j * rec[:, 1] + k * rec[:, 2]
+                    normG = np.abs(G)
+                    sumRec += 4 * np.pi * np.exp( -(normG ** 2) / (4 * convP ** 2) ) / (V * normG ** 2)
+
+    #direct lattice sum
+    sumDir = 0
+
+    for i in range(n):
+        for j in range(n):
+            for k in range(n):
+
+                if i != 0 and j != 0 and k != 0:
+                    
+                    R = i * lattice[:, 0] + j * lattice[:, 1] + k * lattice[:, 2]
+                    normR = np.abs(R)
+                    sumDir += erfc( convP * normR) / normR  
+
+    pot = (sumRec + sumDir - np.pi / (V  * convP ** 2) - 2 * convP / np.sqrt(np.pi)) * q / eps
+    energy = -pot * q / 2 
+    return pot, energy
+    
 """Look into 2d projections"""
 """Python program for visualizing lattice and selecting defect coordinate"""
 """Python program for identifying wyckoff sites"""
