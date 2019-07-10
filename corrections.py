@@ -14,12 +14,12 @@ def birch(V, V0, K0, K1):
     term2 = V / (K1 * V0) - 1 / (K1 - 1)
     return E0 + K0 * V0 * (term1 + term2)
 
-def uniformK(a1, a2, a3, n):
+def uniformK(a1, a2, a3, n, cart=False):
     """Creates a uniform n by n /by n k-space grid give Direct lattice vectors as input
  
         a1, a2, a3: the Direct lattice vectors
         n: grid spacing
-        
+        cart: if true, returns grid in cartesian coordinates
         
     """
     a1 = np.array(a1)
@@ -33,15 +33,21 @@ def uniformK(a1, a2, a3, n):
     b1 = np.cross(a2, a3) / V
     b2 = np.cross(a3, a1) / V
     b3 = np.cross(a1, a2) / V
+
     
     #k grid
     grid = np.zeros((n, n, n, 3))
+
     
     for i in range(n):
         for j in range(n):
             for k in range(n):
-                grid[i, j, k, :] = (i / n) * b1 + (j / n) * b2 + (k / n) * b3
                 
+                if cart:
+                    grid[i, j, k, :] = (i / n) * b1 + (j / n) * b2 + (k / n) * b3
+                else:
+                    grid[i, j, k, :] = [ float(i) / n, float(j) / n, float(k) / n]
+               
     return grid
 
 def readPotential(file):
