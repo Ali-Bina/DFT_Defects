@@ -166,38 +166,41 @@ def bandfill(file, fermi):
 
 class cell(object):
 
-    #3 x 3 matrix of the lattice vectors
-    lattice = np.zeros((3, 3))
-
-    alat = 0
-    
-    #Stores the atom objects of the cell
-    atoms = []
     
     
-    def __init__(file):
+    def __init__(self, file):
         """Reads a structure file and extracts out the atoms, lattice vectors and lattice parameter"""
-
-        with open(file) as file:
+        #3 x 3 matrix of the lattice vectors
+        self.lattice = np.zeros((3, 3))
+        
+        self.alat = 0
+    
+        #Stores the atom objects of the cell
+        self.atoms = []
+        
+        with open(file, 'r') as file:
 
             #lattice parameter is the first line of file
             alat = float( file.readline() )
 
             #next 3 lines specify the lattice vectors
             for i in range(3):
+                
                 line = file.readline()
-                line = line.split(" ")
-                lattice[:, i] = np.array([line[0], line[1], line[2]])
+                line = line.split()
+                self.lattice[:, i] = np.array([line[0], line[1], line[2]])
 
             #rest of the file specifies atom names and their positions in the lattice
-            line = readline()
+            line = file.readline()
+            
             while(line):
-                fields = line.split(" ")
+                
+                fields = line.split()
                 pos = [float(x) for x in fields[1:]]
                 
-                atoms.append( atom( fields[0], np.array(fileds) ) )
+                self.atoms.append( atom( fields[0], np.array(pos) ) )
 
-                line = readline()
+                line = file.readline()
 
 
     def NN():
@@ -207,9 +210,9 @@ class cell(object):
     def super(self, n, l, m):
         """Creates a super cell by scalling each primitive lattice vector by n, l, m"""
 
-        lattice[:, 0] *= n
-        lattice[:, 1] *= l
-        lattice[:, 2] *= m
+        self.lattice[:, 0] *= n
+        self.lattice[:, 1] *= l
+        self.lattice[:, 2] *= m
         
         for i in range(n):
             for j in range(l):
@@ -242,14 +245,13 @@ class cell(object):
 
                 
 
-class atom(cell):
+class atom(object):
         
-    name = "atom"
-    pos = np.zeros(3)
-
+   
     def __init__(self, name, pos):
+        
         self.name = name
-        self.pos = pos
+        self.pos = np.array(pos)
 
 def uniqSites(cell):
     """Identifies wychoff sites in the super cell, used as condidate sites for vacancies and interstitials
