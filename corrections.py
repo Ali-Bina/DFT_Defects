@@ -157,7 +157,62 @@ def bandfill(file, fermi):
     sa = np.sum(sa[energies < VBM]) / np.sum(weights)
 
     print("Shallow donor: {}\nShallow acceptor: {}".format(sd, sa))
+    
+def RtoH(cell):
+    """Converts a rhombohedral primitive lattice to a hexagonal one"""
+    ###Atoms should be in cartesian coordinates, multiply lattice vectors by alat
 
+    
+    #matrix of the hexagonal lattice vectors
+
+    lattice = cell.lattice()
+    
+    lattice_H = np.empty( (3,3) )
+    
+    V_R = np.dot(lattice[:, 0], np.cross(lattice[:, 1], lattice[:, 2]))
+
+    C0 = np.norm( lattice[:, 0] + lattice[:, 1] + lattice[:, 2] )
+
+    a0 = np.sqrt( 2 * V / (np.sqrt(3) * c0) )
+
+    #The hexagonal vectors
+    lattice_H[:, 0] = [a0, 0, 0]
+    lattice_H[:, 1] = [a0 / 2, a0 * np.sqrt(3) / 2, 0]
+    lattice_H[:, 2] = [0, 0, c0]
+
+    atoms = []
+    
+    for atom in cell.atoms:
+        
+        atoms.append( atom(atom.name, atom.pos + [0, 0, 0]) )
+        atoms.append( atom(atom.name, atom.pos + lattice[:, 0]) )
+        atoms.append( atom(atom.name, atom.pos + lattice[:, 1]) )
+
+    return cell(atoms, lattice_H)
+    
+def htoT(cell):
+    """Converts a hexagonal unit cell to a tetragonal super cell"""
+
+    lattice = cell.lattice
+    atoms = cell.atoms
+
+    lattice_T = np.zeros((3,3))
+
+
+    lattice_T[:, 0] = lattice[:, 0]
+    lattice_T[:, 1] = [0, lattice[0, 0] * np.sqrt(3), 0]
+    lattice_T[:, 2] = lattice[:, 2]
+
+    atoms = []
+
+    for atom in cell.atoms:
+
+        
+    
+    
+
+
+    
 class cell(object):
 
     #3 x 3 matrix of the lattice vectors
@@ -167,7 +222,14 @@ class cell(object):
     
     #Stores the atom objects of the cell
     atoms = []
-    
+
+    def __init__(atoms, lattice):
+        """atoms is a list of atom objects in the lattice unit cell
+        lattice is a matix of the lattice vectors"""
+
+        
+        self.atoms = atoms
+        self.lattice = lattice
     
     def __init__(file):
         """Reads a structure file and extracts out the atoms, lattice vectors and lattice parameter"""
@@ -180,7 +242,7 @@ class cell(object):
             #next 3 lines specify the lattice vectors
             for i in range(3):
                 line = file.readline()
-                line = line.split(" ")
+                line = line.split()
                 lattice[:, i] = np.array([line[0], line[1], line[2]])
 
             #rest of the file specifies atom names and their positions in the lattice
@@ -258,6 +320,7 @@ def Ewald(cell, n, convP):
        if EPS is a tensor, compute anisotropic form of sum
     """
 
+    lattice = cell.lattice()
     #Direct lattice volume
     V = np.dot(lattice[:, 0], np.cross(lattice[:, 1], lattice[:, 2]))
 
