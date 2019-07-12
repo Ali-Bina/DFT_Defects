@@ -158,55 +158,6 @@ def bandfill(file, fermi):
 
     print("Shallow donor: {}\nShallow acceptor: {}".format(sd, sa))
     
-def RtoH(cell):
-    """Converts a rhombohedral primitive lattice to a hexagonal one"""
-    ###Atoms should be in cartesian coordinates, multiply lattice vectors by alat
-
-    
-    #matrix of the hexagonal lattice vectors
-
-    lattice = cell.lattice()
-    
-    lattice_H = np.empty( (3,3) )
-    
-    V_R = np.dot(lattice[:, 0], np.cross(lattice[:, 1], lattice[:, 2]))
-
-    C0 = np.norm( lattice[:, 0] + lattice[:, 1] + lattice[:, 2] )
-
-    a0 = np.sqrt( 2 * V / (np.sqrt(3) * c0) )
-
-    #The hexagonal vectors
-    lattice_H[:, 0] = [a0, 0, 0]
-    lattice_H[:, 1] = [a0 / 2, a0 * np.sqrt(3) / 2, 0]
-    lattice_H[:, 2] = [0, 0, c0]
-
-    atoms = []
-    
-    for atom in cell.atoms:
-        
-        atoms.append( atom(atom.name, atom.pos + [0, 0, 0]) )
-        atoms.append( atom(atom.name, atom.pos + lattice[:, 0]) )
-        atoms.append( atom(atom.name, atom.pos + lattice[:, 1]) )
-
-    return cell(atoms, lattice_H)
-    
-def htoT(cell):
-    """Converts a hexagonal unit cell to a tetragonal super cell"""
-
-    lattice = cell.lattice
-    atoms = cell.atoms
-
-    lattice_T = np.zeros((3,3))
-
-
-    lattice_T[:, 0] = lattice[:, 0]
-    lattice_T[:, 1] = [0, lattice[0, 0] * np.sqrt(3), 0]
-    lattice_T[:, 2] = lattice[:, 2]
-
-    atoms = []
-
-    for atom in cell.atoms:
-
         
     
     
@@ -215,50 +166,106 @@ def htoT(cell):
     
 class cell(object):
 
-    #3 x 3 matrix of the lattice vectors
-    lattice = np.zeros((3, 3))
 
-    alat = 0
     
-    #Stores the atom objects of the cell
-    atoms = []
-
-    def __init__(atoms, lattice):
-        """atoms is a list of atom objects in the lattice unit cell
-        lattice is a matix of the lattice vectors"""
-
-        
-        self.atoms = atoms
-        self.lattice = lattice
-    
-    def __init__(file):
+    def __init__(self, file, atoms=[], lattice=[]):
         """Reads a structure file and extracts out the atoms, lattice vectors and lattice parameter"""
+        if not len(atoms) or not len(lattice):
+            
+            with open(file, 'r') as file:
 
-        with open(file) as file:
-
-            #lattice parameter is the first line of file
-            alat = float( file.readline() )
-
-            #next 3 lines specify the lattice vectors
-            for i in range(3):
-                line = file.readline()
-                line = line.split()
-                lattice[:, i] = np.array([line[0], line[1], line[2]])
-
-            #rest of the file specifies atom names and their positions in the lattice
-            line = readline()
-            while(line):
-                fields = line.split(" ")
-                pos = [float(x) for x in fields[1:]]
+                #lattice parameter is the first line of file
+                self.alat = float( file.readline() )
+                self.lattice = np.zeros( (3,3) )
+                self.atoms = []
                 
-                atoms.append( atom( fields[0], np.array(fileds) ) )
+                #next 3 lines specify the lattice vectors
+                for i in range(3):
+                    line = file.readline()
+                    line = line.split()
+                    self.lattice[:, i] = np.array([float(line[0]), float(line[1]), float(line[2])])
 
-                line = readline()
+
+                #rest of the file specifies atom names and their positions in the lattice
+                line = file.readline()
+                    
+                while(line):
+                    fields = line.split()
+                    pos = [float(x) for x in fields[1:]]
+                    self.atoms.append( atom( fields[0], np.array(pos) ) )
+
+                    line = file.readline()
+                        
+        else:
+
+            self.alat=0
+            self.atoms = atoms
+            self.lattice = lattice
+                        
 
 
     def NN():
         pass
+
+
+    def RtoH(cel):
+        """Converts a rhombohedral primitive lattice to a hexagonal one"""
+        ###Atoms should be in cartesian coordinates, multiply lattice vectors by alat
+
+    
+        #matrix of the hexagonal lattice vectors
+
+        lattice = cel.lattice
+    
+        lattice_H = np.empty( (3,3) )
+    
+        V_R = np.dot(lattice[:, 0], np.cross(lattice[:, 1], lattice[:, 2]))
+
+        c0 = np.linalg.norm( lattice[:, 0] + lattice[:, 1] + lattice[:, 2] )
+    
+        a0 = np.sqrt( 2 * V_R / (np.sqrt(3) * c0) )
+
+        #The hexagonal vectors
+        lattice_H[:, 0] = [a0, 0, 0]
+        lattice_H[:, 1] = [a0 / 2, a0 * np.sqrt(3) / 2, 0]
+        lattice_H[:, 2] = [0, 0, c0]
+
+        atoms_H = []
+        n = 3
+        #Basis for the tetragonal system (contains 3 lattice points instead of 1)
+        for at in cel.atoms:
+            atoms_H.append(atom(at.name, at.pos + [0, 0, 0]))
+            atoms_H.append(atom(at.name, at.pos + lattice[:, 0]))
+            atoms_H.append(atom(at.name, at.pos + lattice[:, 1]))
         
+        #Tetragonal lattice vectors
+        lattice_T = np.zeros((3,3))
+
+        lattice_T[:, 0] = lattice_H[:, 0]
+        lattice_T[:, 1] = [0, lattice_H[0, 0] * np.sqrt(3), 0]
+        lattice_T[:, 2] = lattice_H[:, 2]
+
+        #create a hexagonal supercell and include only those atoms that that lie inside the tetragonal cell 
+        atoms = []
+    
+        for i in range(-n, n):
+            for j in range(-n, n):
+                    for at in atoms_H:
+                    
+                        pos =  i * lattice_H[:, 0] + j * lattice_H[:, 1] + at.pos
+                        atoms.append(atom(at.name, pos))
+
+        maxCoord = np.sum(lattice_T, axis = 0)
+
+        atoms_T = []
+        for at in atoms:
+            
+            if np.sum(at.pos < maxCoord) == 3 and np.sum(at.pos > maxCoord) == 3:
+
+                atoms_T.append(atom(at.name, at.pos))
+                   
+        
+        return cell(0, atoms_H, lattice_T)
                 
     def super(self, n, l, m):
         """Creates a super cell by scalling each primitive lattice vector by n, l, m"""
@@ -274,12 +281,12 @@ class cell(object):
                         pos = (i / n) * lattice[:, 0] + (j / l) * lattice[:, 1] + (k / m) * lattice[:, 2] + atom.pos
 
     def __str__(self):
-        string = "{}\n".format(alat)
+        string = "{}\n".format(self.alat)
 
         for i in range(3):
-            string += str(lattice[:, i])[1:-1] + "\n"
+            string += str(self.lattice[:, i])[1:-1] + "\n"
 
-        for atom in atoms:
+        for atom in self.atoms:
             string += "{} {} {} {}\n".format(atom.name, atom.pos[0], atom.pos[1], atom.pos[2])
                         
         return string
@@ -299,13 +306,13 @@ class cell(object):
                 
 
 class atom(cell):
-        
-    name = "atom"
-    pos = np.zeros(3)
-
+    
     def __init__(self, name, pos):
         self.name = name
         self.pos = pos
+
+    def __str__(self):
+        return  "{}\t{} {} {}".format(self.name, *self.pos)
 
 def uniqSites(cell):
     """Identifies wychoff sites in the super cell, used as condidate sites for vacancies and interstitials
@@ -320,7 +327,7 @@ def Ewald(cell, n, convP):
        if EPS is a tensor, compute anisotropic form of sum
     """
 
-    lattice = cell.lattice()
+    lattice = cel.lattice()
     #Direct lattice volume
     V = np.dot(lattice[:, 0], np.cross(lattice[:, 1], lattice[:, 2]))
 
@@ -341,7 +348,7 @@ def Ewald(cell, n, convP):
                 if i != 0 and j != 0 and k != 0:
                     
                     G = i * rec[:, 0] + j * rec[:, 1] + k * rec[:, 2]
-                    normG = np.abs(G)
+                    normG = np.linalg.norm(G)
                     sumRec += 4 * np.pi * np.exp( -(normG ** 2) / (4 * convP ** 2) ) / (V * normG ** 2)
 
     #direct lattice sum
@@ -354,7 +361,7 @@ def Ewald(cell, n, convP):
                 if i != 0 and j != 0 and k != 0:
                     
                     R = i * lattice[:, 0] + j * lattice[:, 1] + k * lattice[:, 2]
-                    normR = np.abs(R)
+                    normR = np.linalg.norm(R)
                     sumDir += erfc( convP * normR) / normR  
 
     pot = (sumRec + sumDir - np.pi / (V  * convP ** 2) - 2 * convP / np.sqrt(np.pi)) * q / eps
