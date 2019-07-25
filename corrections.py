@@ -6,10 +6,12 @@ Created on Wed Jun 26 15:15:39 2019
 """
 
 import numpy as np
-from scipy.special import erfc 
-
+from scipy.special import erfc
+from numpy.linalg import norm, inv, det
+from numpy import dot
         
 def birch(V, V0, K0, K1):
+    """Birch equation of state, fit to DFT total energy vs V and extract equillibrium V"""
     term1 = 1 / (K1 * (K1 - 1)) * (V / V0 ) ** (1 - K1)
     term2 = V / (K1 * V0) - 1 / (K1 - 1)
     return E0 + K0 * V0 * (term1 + term2)
@@ -87,14 +89,14 @@ def readPotential(file):
                         data[i, j, k] = float(value)
                         k += 1
         
-    return data
+    return (data, vx, vy, vz)
         
                 
 def potAlign(Host, Defect, tol):
     """input: 
         Defect, Host: Local potential from defect and host
         tol: Energy tolerance
-        
+        Currently planar averages
         1. Average potential over same atom type
         2. take difference between average and actual
         3. Exclude atom if difference is beyond threshold (want potential at atomic sites far away from defect)
@@ -131,11 +133,11 @@ def imgChage(SC, charge, medalung, L, epsil):
 
     return  ( 1 + SC * (1 - 1 / epsil) ) * (charge) * medalung / (2 * epsil * L * e0)
 
-def bandfill(file, fermi):
+def bandfill(file, host, fermi, palign):
     """Computes the correction term due moss burnstein type band filling which occures due to unphysically large defect concentrations.
        Computes the correction for shallow donors and acceptros
        
-       fermi : any energy in the band gap will do
+       host, fermi : host bandstructure and fermi level
        file: Name of file containing as columns the occupations, energy eigenvalues and wights"""
        
     data = np.loadtxt(file, skiprows=1)
@@ -143,31 +145,26 @@ def bandfill(file, fermi):
     energies = data[:, 3]
     occupations = data[:, 4]
     weights = data[:, 5]
-      
-       
+
+    energyH = np.loadtxt(host)    
     #Find CBM, VBM
     #fermi needs to be inside gap for this to work
-    CBM = min([x for x in energies if x > fermi])
-    VBM = max([x for x in energies if x < fermi])
+    CBM = min([x for x in energyH[:, 1] if x > fermi]) + palign
+    VBM = max([x for x in energyH[:, 1] if x < fermi]) + palign
 
-    sd = weights * occupations * (energies - CBM)
-    sd = np.sum(sd[energies > CBM]) / np.sum(weights)
+    sd = -1 * weights * occupations * (energies - CBM)
+    sd = np.sum(sd[energies > CBM])
 
     sa = weights * (1 - occupations) * (energies - VBM)
-    sa = np.sum(sa[energies < VBM]) / np.sum(weights)
+    sa = np.sum(sa[energies < VBM])
 
     print("Shallow donor: {}\nShallow acceptor: {}".format(sd, sa))
     
         
-    
-    
-
 
     
 class cell(object):
 
-
-    
     def __init__(self, file, atoms=[], lattice=[]):
         """Reads a structure file and extracts out the atoms, lattice vectors and lattice parameter"""
         if not len(atoms) or not len(lattice):
@@ -221,7 +218,7 @@ class cell(object):
         for at in cell.atoms:
 
             #position in crystal coordinates
-            newPos[:] = np.dot(np.inv(cell.lattice), at.pos)
+            newPos[:] = dot(inv(cell.lattice), at.pos)
             
             
             for i in range(3):
@@ -243,12 +240,10 @@ class cell(object):
             return newAtoms
     
     def RtoO(cel):
-        """Converts a rhombohedral primitive lattice to an orthorhombic lattice"""
-        ###Atoms should be in cartesian coordinates, multiply lattice vectors by alat
-        #bring into primitive cell
+        """Converts a rhombohedral primitive lattice to an orthorhombic cell
+          !!!!Assumes atomic positions are in crystal coordinates!!!!"""
     
-        #matrix of the hexagonal lattice vectors
-
+        #matrix of the rhombohedral lattice vectors
         lattice = cel.lattice
 
         #stores hexagonal lattice vectors
@@ -258,7 +253,7 @@ class cell(object):
         V_R = np.dot(lattice[:, 0], np.cross(lattice[:, 1], lattice[:, 2]))
 
         #length of c axis in hexagonal system
-        c0 = np.linalg.norm( lattice[:, 0] + lattice[:, 1] + lattice[:, 2] )
+        c0 = norm( lattice[:, 0] + lattice[:, 1] + lattice[:, 2] )
 
         #length of a axis in hexagonal
         a0 = np.sqrt( 6 * V_R / (np.sqrt(3) * c0) )
@@ -268,14 +263,6 @@ class cell(object):
         lattice_H[:, 1] = [a0 / 2, a0 * np.sqrt(3) / 2, 0]
         lattice_H[:, 2] = [0, 0, c0]
 
-        #Basis for the hexagonal system (contains 3 lattice points instead of 1)
-        atoms_H = []
-        n = 5
-        for at in cel.atoms:
-            atoms_H.append(atom(at.name, at.pos + [0, 0, 0]))
-            atoms_H.append(atom(at.name, at.pos + lattice[:, 0]))
-            atoms_H.append(atom(at.name, at.pos + lattice[:, 1]))
-        
         #Orthorombic lattice vectors
         lattice_O = np.zeros((3,3))
 
@@ -283,16 +270,27 @@ class cell(object):
         lattice_O[:, 1] = [0, lattice_H[0, 0] * np.sqrt(3), 0]
         lattice_O[:, 2] = lattice_H[:, 2]
 
+        superAtoms = []
+        #create rhobohedral supercell
 
-        atoms_O = []
+        n = 4
+        for i in range(-n, n):
+            for j in range(-n, n):
+                for k in range(-n, n):
+                    for at in cel.atoms:
+                        superAtoms.append( atom(at.name, at.pos + np.array( [i, j, k] )) )
+                    
+                    
+        atomsO = []
+        #change atomic coordinates to orthorombic basis
 
-        
-        for at in atoms_H:
-            atoms_O.append(atom(at.name, at.pos + [0, 0, 0]))
-            atoms_O.append(atom(at.name, at.pos + lattice_H[:, 1]))               
+        m = np.dot(inv(lattice_O), lattice) #change of basis matrix
+        atomsO = [atom(at.name, np.dot(m, at.pos)) for at in superAtoms]
 
-        print("h1: {}", lattice_H[:, 1])
-        return cell(0, atoms_O, lattice_O)
+        #include only those atoms with coordinates between 0 and 1
+        atomsO = [at for at in atomsO if np.sum( at.pos >= 0 ) == 3 and np.sum( at.pos < 0.9999 ) == 3 ]
+    
+        return cell(0, atomsO, lattice_O)
                 
     def super(self, n, l, m):
         """Creates a super cell by scalling each primitive lattice vector by n, l, m"""
@@ -326,84 +324,260 @@ class cell(object):
             string += "{} {} {} {}\n".format(atom.name, atom.pos[0], atom.pos[1], atom.pos[2])
                         
         return string
-            
-    def makeCube():
-      
-        #cartesian basis
-        cube = np.array([ [1, 0, 0],
-                          [0, 1, 0],
-                          [0, 0, 1] ])
-        
-        #change of coordinates matrix from lattice to cartesian
-        change = np.dot(np.inv(cube), self.lattice) 
-    
-                
+###############################EWALD############################
+    def realSpace(self, n, convP, eps=np.identity(3)):
 
+        #eps = dielectric Tensor
+        ieps = inv(eps)
+        deps = det(eps)
+
+        lattice = self.lattice
+        sumDir = 0
+        sConvP  = np.sqrt(convP)
+
+        #ensures that sum does not exceed erfc(15)
+        iRange  = int( 15 /  (np.sqrt(convP) * norm(lattice[:, 0])) ) + 1
+        jRange =  int( 15 /  (np.sqrt(convP) * norm(lattice[:, 1])) ) + 1
+        kRange =  int( 15 /  (np.sqrt(convP) * norm(lattice[:, 2])) ) + 1
+
+
+        for i in range(-iRange, iRange + 1):
+                   
+            for j in range(-jRange, jRange + 1):
+                   
+                for k in range(-kRange, kRange + 1):
+                   
+                   if i == j == k == 0:
+                       continue
+                   
+                   R = i * lattice[:, 0] + j * lattice[:, 1] + k * lattice[:, 2]
+                   arg = np.sqrt( dot(R, dot(ieps, R)) )
+
+                   sumDir += erfc( sConvP * arg) / arg / np.sqrt(deps)  
+    
+        return  sumDir * norm(lattice[:, 0])
+
+    def reciprocal(self, thr, convP, eps=np.identity(3), r=np.zeros(3)):
+        lattice = self.lattice
+        V = np.dot(lattice[:, 0], np.cross(lattice[:, 1], lattice[:, 2]))
+    
+        rec = np.empty((3,3))
+        rec[:, 0] = 2 * np.pi * np.cross(lattice[:, 1], lattice[:, 2]) / V
+        rec[:, 1] = 2 * np.pi * np.cross(lattice[:, 2], lattice[:, 0]) / V
+        rec[:, 2] = 2 * np.pi * np.cross(lattice[:, 0], lattice[:, 1]) / V
+
+        sumRec = 0
+
+        thr = thr / 13.605698066
+        iRange = int( np.sqrt(thr) / norm(lattice[:, 0]) ) + 1
+        jRange = int( np.sqrt(thr) / norm(lattice[:, 1]) ) + 1
+        kRange = int( np.sqrt(thr) / norm(lattice[:, 2]) ) + 1
+        
+        for i in range(-iRange, iRange + 1):
+
+            for j in range(-jRange, jRange + 1):
+        
+                for k in range(-kRange, kRange + 1):
+                    
+                    if i == j == k == 0:
+                        continue
+                    
+                    G = i * rec[:, 0] + j * rec[:, 1] + k * rec[:, 2]
+
+                    arg = dot(G, dot(eps, G))
+                    normG = norm(G)
+                    sumRec += 4 * np.pi / V  * np.exp( -arg / (4 * convP)) / arg
+
+
+        return sumRec
+
+    def ewaldPot(self, thr, convP, charge, eps=np.identity(3)):
+        deps = det(eps)
+        lattice = self.lattice
+        V = np.dot(lattice[:, 0], np.cross(lattice[:, 1], lattice[:, 2]))
+        rsum = self.realSpace(thr, convP, eps)
+        gsum = self.reciprocal(thr, convP, eps)
+        sconvP = np.sqrt(convP)
+                   
+        pot = rsum + gsum - np.pi / (V * convP) - (2 * sconvP) / np.sqrt(np.pi * deps)
+        return pot * charge
+
+    def firstO(self, thr, convP, charge,eps=np.identity(3)):
+        """Screened coloumb energy of a periodic array of point charges in a uniform neutralizing background """
+        return self.ewaldPot(thr, convP, charge, eps) * -1 * charge / 2 
+
+
+    def integrate(self, size=100):
+        """Integrate over a weiner seitz cell of the lattice
+        size = grid size
+        Sampeling center of voxels
+        dx = """
+        
+        lattice = self.lattice
+    
+
+        #cartesian Tensor
+        g = np.dot(lattice.transpose(), lattice)
+
+        #volume of cell
+        V = np.sqrt(det(g))
+        
+        #begin integration (sum)
+
+        sum = 0
+        for l in range(size):
+            for m in range(size):
+                for n in range(size):
+
+                    candidate_integrand = []
+                    #finds the position between all surrounding cells that is closest
+                    #to the origin i.e. insde the weigner seitz cell
+                    for i in [-1, 0, 1]:
+                        for j in [-1, 0, 1]:
+                            for k in [-1, 0, 1]:
+                                latV = np.array([l, m, n]) / size #lattice vector
+                                pos = np.array([i, j, k]) #postion inside cell
+                            
+                                vector = pos + latV - 0.5
+                            
+                                length = dot(vector, dot(g, vector))
+                            
+                                candidate_integrand.append(length)
+
+                    #the smallest coordinate is in the weigner seitz cell
+                    sum += np.min(candidate_integrand)
                 
+        #integration is done in crystall coordinate (1/V = det(Jacobian))
+        return  sum / (V * size ** 3)
+
+    def correction1(charge, eps, thr, convP):
+    
+        thirdOrder = integrate(size=100)* (4 * np.pi / 3 * charge ** 2) * (1 - 1 / eps) / eps
+        firstOrder = firstO(thr, convP, charge, eps * np.identity(3))
+    
+        return firstOrder - thirdOrder
+
+    def shapeFactor(self, thr, convP):
+        E1 = self.firstO(thr, convP, 1, eps=np.identity(3))
+        
+        E3 = self.integrate(size=50) * -1 * (2 * np.pi / 3)
+
+        
+        return E3 / E1
+
+    def LZ_img(self, thr, convP, charge, eps):
+
+        """Lany and Zunger correction to the spurious electrostatic intraction between defects"""
+        #######change units to eV#################
+        return self.firstO(thr, convP, charge, eps * np.identity(3)) * (1 + self.shapeFactor(thr, convP) * (1 - 1 / eps)) * 13.6056980659
+        
+    ###################Potential Allignment################
+
+    def atomSphereAvg(self, potFile, radii):
+        """Atom sphere averaged potential difference between host and defect potentials (PP + Hartree)
+           Parameters: potFile: PP + vHartree as a cube file from pp.x output
+                        radii: Radius of the sphere about each atom to the averaging at"""
+    
+        Pot, vx, vy, vz  = readPotential(potFile)
+
+
+        #Sphere average host potential at atomic positions for host
+        spherePots = []
+    
+        #generate points on the surface of a sphere
+        lenTheta = 100
+        lenPhi = 100
+        vRad = np.zeros((3, lenTheta, lenPhi))
+        thetas = np.linspace(0, np.pi, lenTheta)
+        phis = np.linspace(0, 2 * np.pi, lenPhi)
+        for i, theta in enumerate(thetas):
+            for j, phi in enumerate(phis):
+
+                vRad[0, i, j] = normR * np.sin(theta) * np.cos(phi)
+                vRad[1, i, j] = normR * np.sin(theta) * np.sin(phi)
+                vRad[2, i, j] = normR * np.cos(theta)
+
+        
+        for at, normR in zip(self.atoms, radii):
+
+            for i in range(lenTheta):
+                for j in range(lenPhi):
+
+                    
+                    pos = np.dot(cell.lattice, at.pos) + vRad[:, i, j]
+
+                    #find approximate postion of atom interms of array index
+                    ipos = np.dot(np.inv(np.array([vx, vy, vz])), pos))
+                    ipos = np.array( list(map(int, ipos)) )
+
+                    radAvg += hostPot[tuple(ipos)] / (lenTheta * lenPhi)
+
+            spherePots.append(radAvg)
+            
+
+    return radAvg
+
+
+    def potAllign(host, defect, cellH, cellD, radii, thr):
+        """ Assumes defect is the first element of the atom list"""
+        
+        hostPot = atomSphereAvg(host, radii)
+        defectPot = atomSphereAvg(defect, radii)
+
+        avgPot = np.average(defectPot)
+        std = np.std(defectPot)
+
+        #Not considering potential at defect site in average
+        if len(cellH.atoms) > len(cellD.atoms):
+
+            atomsD = cellD.atoms
+            atomsH = cellH.atoms[1:]
+            hostPot = hostPot[1:]
+
+        elif len(cellH.atoms) < len(cellD.atoms):
+
+            atomsD = cellD.atoms[1:]
+            defectPot = defectPot[1:]
+            atomsH = cellH.atoms
+
+        else:
+
+            atomsD = cellD.atoms[1:]
+            defectPot = defectPot[1:]
+            
+            atomsH = cellH.atoms[1:]
+            hostPot = hostPot[1:]
+            
+        include = list( rangelen(defectPot) )
+        
+        #include only those atoms in defect cell whose potential is within 1 std of the average defect potential
+        copyDefectPot = deepCopy(defectPot)
+        for i, pot in enumerate(copyDefectPot):
+
+            if abs( (pot - avgPot) / std ) > 1:
+
+                defectpot.pop(i)
+                hostPot.pop(i)
+
+                atomsD.pop(i)
+                atomsD.pop(i)
+        
+
+        return np.average(defectPot - hostPot)
+
+
 
 class atom(cell):
+
     
-    def __init__(self, name, pos):
+    
+    def __init__(self, name, pos, charge=0):
         self.name = name
         self.pos = pos
+        self.charge=charge
 
     def __str__(self):
         return  "{}\t{} {} {}".format(self.name, *self.pos)
 
-def uniqSites(cell):
-    """Identifies wychoff sites in the super cell, used as condidate sites for vacancies and interstitials
-    
-       1.Find space group
-       2. Perform symmetry operations on atomic basis
-       3. Identify sites equivalent through symmetry within tolerance
-       4. Return a set of symmetry inequivalent atoms"""
-    
-def Ewald(cell, n, convP):
-    """Ewald sum for computing the Madelung energy of a periodic array of point charges neutralized        by a uniform background
-       if EPS is a tensor, compute anisotropic form of sum
-    """
 
-    lattice = cel.lattice()
-    #Direct lattice volume
-    V = np.dot(lattice[:, 0], np.cross(lattice[:, 1], lattice[:, 2]))
 
-    #reciprocal lattice vectors
-    rec = np.empty((3,3))
-    rec[:, 0] = np.cross(lattice[:, 1], lattice[:, 2]) / V
-    rec[:, 1] = np.cross(lattice[:, 2], lattice[:, 0]) / V
-    rec[:, 2] = np.cross(lattice[:, 0], lattice[:, 1]) / V
-
-   
-    #reciprocal lattice sum
-    sumRec = 0
-
-    for i in range(n):
-        for j in range(n):
-            for k in range(n):
-
-                if i != 0 and j != 0 and k != 0:
-                    
-                    G = i * rec[:, 0] + j * rec[:, 1] + k * rec[:, 2]
-                    normG = np.linalg.norm(G)
-                    sumRec += 4 * np.pi * np.exp( -(normG ** 2) / (4 * convP ** 2) ) / (V * normG ** 2)
-
-    #direct lattice sum
-    sumDir = 0
-
-    for i in range(n):
-        for j in range(n):
-            for k in range(n):
-
-                if i != 0 and j != 0 and k != 0:
-                    
-                    R = i * lattice[:, 0] + j * lattice[:, 1] + k * lattice[:, 2]
-                    normR = np.linalg.norm(R)
-                    sumDir += erfc( convP * normR) / normR  
-
-    pot = (sumRec + sumDir - np.pi / (V  * convP ** 2) - 2 * convP / np.sqrt(np.pi)) * q / eps
-    energy = -pot * q / 2 
-    return pot, energy
-    
-"""Look into 2d projections"""
-"""Python program for visualizing lattice and selecting defect coordinate"""
-"""Python program for identifying wyckoff sites"""
