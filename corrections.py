@@ -60,7 +60,7 @@ def readPotential(file):
         line = file.readline().lstrip().split()
         nx = int(line[0])
         vx = np.array([line[1], line[2], line[3]])
-
+        
         line = file.readline().lstrip().split()
         ny = int(line[0])
         vy = np.array([line[1], line[2], line[3]])
@@ -133,11 +133,11 @@ def imgChage(SC, charge, medalung, L, epsil):
 
     return  ( 1 + SC * (1 - 1 / epsil) ) * (charge) * medalung / (2 * epsil * L * e0)
 
-def bandfill(file, host, fermi, palign):
+def bandfill(file, VBM, CBM):
     """Computes the correction term due moss burnstein type band filling which occures due to unphysically large defect concentrations.
        Computes the correction for shallow donors and acceptros
        
-       host, fermi : host bandstructure and fermi level
+       Host VBM and CBM values after potential alignment
        file: Name of file containing as columns the occupations, energy eigenvalues and wights"""
        
     data = np.loadtxt(file, skiprows=1)
@@ -145,18 +145,14 @@ def bandfill(file, host, fermi, palign):
     energies = data[:, 3]
     occupations = data[:, 4]
     weights = data[:, 5]
-
-    energyH = np.loadtxt(host)    
-    #Find CBM, VBM
-    #fermi needs to be inside gap for this to work
-    CBM = min([x for x in energyH[:, 1] if x > fermi]) + palign
-    VBM = max([x for x in energyH[:, 1] if x < fermi]) + palign
-
+    
     sd = -1 * weights * occupations * (energies - CBM)
     sd = np.sum(sd[energies > CBM])
 
     sa = weights * (1 - occupations) * (energies - VBM)
     sa = np.sum(sa[energies < VBM])
+
+
 
     print("Shallow donor: {}\nShallow acceptor: {}".format(sd, sa))
     
@@ -165,7 +161,7 @@ def bandfill(file, host, fermi, palign):
     
 class cell(object):
 
-    def __init__(self, file, atoms=[], lattice=[]):
+    def __init__(self, file='', atoms=[], lattice=[]):
         """Reads a structure file and extracts out the atoms, lattice vectors and lattice parameter"""
         if not len(atoms) or not len(lattice):
             
@@ -201,17 +197,13 @@ class cell(object):
                         
 
 
-    def NN():
+    def NN(self, pos):
+        """Returns coordeinates of atoms closest to the point pos in space"""
         pass
 
     def prim(cell):
         """returns position of atoms in the primitive cell"""
 
-        #convert to crystal coordinates
-        #if negative add 1
-        #if grater than or equal to 1 subtract 1
-
-        #change of basis matrix from cartesian to crystal
         newAtoms = []
         newPos = np.array(3)
         
@@ -224,7 +216,7 @@ class cell(object):
             for i in range(3):
                 while True:
                     
-                    if at.pos[i] >= 1:
+                    if at.pos[i] >=1:
                         newPos[i] -=1
                         
                     elif at.pos[i] < 0:
@@ -325,7 +317,7 @@ class cell(object):
                         
         return string
 ###############################EWALD############################
-    def realSpace(self, n, convP, eps=np.identity(3)):
+    def realSpace(self,convP, eps=np.identity(3)):
 
         #eps = dielectric Tensor
         ieps = inv(eps)
@@ -368,7 +360,7 @@ class cell(object):
 
         sumRec = 0
 
-        thr = thr / 13.605698066
+        thr = thr / (13.605698066 * 2 ) #energy in Hartree
         iRange = int( np.sqrt(thr) / norm(lattice[:, 0]) ) + 1
         jRange = int( np.sqrt(thr) / norm(lattice[:, 1]) ) + 1
         kRange = int( np.sqrt(thr) / norm(lattice[:, 2]) ) + 1
@@ -395,7 +387,7 @@ class cell(object):
         deps = det(eps)
         lattice = self.lattice
         V = np.dot(lattice[:, 0], np.cross(lattice[:, 1], lattice[:, 2]))
-        rsum = self.realSpace(thr, convP, eps)
+        rsum = self.realSpace(convP, eps)
         gsum = self.reciprocal(thr, convP, eps)
         sconvP = np.sqrt(convP)
                    
@@ -466,10 +458,9 @@ class cell(object):
         return E3 / E1
 
     def LZ_img(self, thr, convP, charge, eps):
-
+        """Expects all quantities in Hartree atomic units (hbar = e = me = 1)"""
         """Lany and Zunger correction to the spurious electrostatic intraction between defects"""
-        #######change units to eV#################
-        return self.firstO(thr, convP, charge, eps * np.identity(3)) * (1 + self.shapeFactor(thr, convP) * (1 - 1 / eps)) * 13.6056980659
+        return self.firstO(thr, convP, charge, eps * np.identity(3)) * (1 + self.shapeFactor(thr, convP) * (1 - 1 / eps)) * 27.211396
         
     ###################Potential Allignment################
 
@@ -480,53 +471,49 @@ class cell(object):
     
         Pot, vx, vy, vz  = readPotential(potFile)
 
-
         #Sphere average host potential at atomic positions for host
         spherePots = []
     
-        #generate points on the surface of a sphere
-        lenTheta = 100
-        lenPhi = 100
-        vRad = np.zeros((3, lenTheta, lenPhi))
+        lenTheta = 50
+        lenPhi = 50
+        vRad = np.zeros(3)
         thetas = np.linspace(0, np.pi, lenTheta)
         phis = np.linspace(0, 2 * np.pi, lenPhi)
-        for i, theta in enumerate(thetas):
-            for j, phi in enumerate(phis):
-
-                vRad[0, i, j] = normR * np.sin(theta) * np.cos(phi)
-                vRad[1, i, j] = normR * np.sin(theta) * np.sin(phi)
-                vRad[2, i, j] = normR * np.cos(theta)
-
         
         for at, normR in zip(self.atoms, radii):
 
-            for i in range(lenTheta):
-                for j in range(lenPhi):
+            #generate points on the surface of a sphere
+            radAvg = 0
+            for theta in thetas:
+                for phi in phis:
 
-                    
-                    pos = np.dot(cell.lattice, at.pos) + vRad[:, i, j]
+                    vRad[0] = normR * np.sin(theta) * np.cos(phi)
+                    vRad[1] = normR * np.sin(theta) * np.sin(phi)
+                    vRad[2] = normR * np.cos(theta)
 
-                    #find approximate postion of atom interms of array index
-                    ipos = np.dot(np.inv(np.array([vx, vy, vz])), pos))
-                    ipos = np.array( list(map(int, ipos)) )
+                    #point on the sphere about the atom in cartesian coordinates
+                    pos = np.dot(self.lattice, at.pos) + vRad
+                    pos = np.array(pos, dtype='float')
 
-                    radAvg += hostPot[tuple(ipos)] / (lenTheta * lenPhi)
+                    #find approximate postion of sphere point interms of array index
+                    ipos = np.dot(inv(np.array([vx, vy, vz], dtype='float')), pos)
+                    ipos = np.array(list(map(int, ipos)))
 
-            spherePots.append(radAvg)
+                    radAvg += Pot[tuple(ipos)]
+
+            spherePots.append( radAvg  / (lenTheta * lenPhi) )
             
 
-    return radAvg
+        return spherePots
 
 
     def potAllign(host, defect, cellH, cellD, radii, thr):
         """ Assumes defect is the first element of the atom list"""
         
-        hostPot = atomSphereAvg(host, radii)
-        defectPot = atomSphereAvg(defect, radii)
+        hostPot = cellH.atomSphereAvg(host, radii)
+        defectPot = cellD.atomSphereAvg(defect, radii)
 
-        avgPot = np.average(defectPot)
-        std = np.std(defectPot)
-
+        
         #Not considering potential at defect site in average
         if len(cellH.atoms) > len(cellD.atoms):
 
@@ -548,22 +535,27 @@ class cell(object):
             atomsH = cellH.atoms[1:]
             hostPot = hostPot[1:]
             
-        include = list( rangelen(defectPot) )
+        avgPot = np.average(defectPot)
+        std = np.std(defectPot)
+    
+        include = list( range(len(defectPot)) )
         
         #include only those atoms in defect cell whose potential is within 1 std of the average defect potential
-        copyDefectPot = deepCopy(defectPot)
-        for i, pot in enumerate(copyDefectPot):
+        copyDefectPot = list(defectPot)
 
-            if abs( (pot - avgPot) / std ) > 1:
+        defectPot2 = []
+        hostPot2 = []
+        for potH, potD in zip(defectPot, hostPot):
 
-                defectpot.pop(i)
-                hostPot.pop(i)
+            if abs( (potD - avgPot) / std ) < 0.5:
 
-                atomsD.pop(i)
-                atomsD.pop(i)
-        
-
-        return np.average(defectPot - hostPot)
+                defectPot2.append(potD)
+                hostPot2.append(potH)
+        import matplotlib.pyplot as plt
+        #plot against distance to defect
+        plt.plot(np.array(defectPot2) - np.array(hostPot2))
+        plt.show()
+        return np.average( np.array(defectPot2) - np.array(hostPot2) )
 
 
 
