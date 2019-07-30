@@ -6,3 +6,7 @@ Available Methods:
 * LZ_img:
 	* third_order
 	* firstO
+```python
+if __name__ == 'main':
+	print('Hello, World')
+```
