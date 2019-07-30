@@ -10,3 +10,7 @@ Available Methods:
 if __name__ == 'main':
 	print('Hello, World')
 ```
+
+First col | second col
+---------- ------------
+first element | second element
