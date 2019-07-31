@@ -90,48 +90,7 @@ def readPotential(file):
                         k += 1
         
     return (data, vx, vy, vz)
-        
-                
-def potAlign(Host, Defect, tol):
-    """input: 
-        Defect, Host: Local potential from defect and host
-        tol: Energy tolerance
-        Currently planar averages
-        1. Average potential over same atom type
-        2. take difference between average and actual
-        3. Exclude atom if difference is beyond threshold (want potential at atomic sites far away from defect)
-        4. Take the difference between potentail of defect and host at accepetible atomic sites
-        
-    """
-    hostPot = readPotential(Host)
-    defectPot = readPotential(Defect)
-    
-    hostAvg = np.average(hostPot, axis=(1,2))
-    defectAvg = np.average(defectPot, axis=(1,2))
 
-    return defectAvg - hostAvg
-    
-    
-def imgChage(SC, charge, medalung, L, epsil):
-    """Computes the correction term due to unphysical electrostatic interaction between periodic images of charged defects in the super cell method
-        see  M Leslie and N J Gillan 1985 J. Phys. C: Solid State Phys. 18 973
-        and  Stephan Lany and Alex Zunger 2009 Modelling Simul. Mater. Sci. Eng. 17 084002
-        for more details
-       The form of the correction used is the one specified in the second paper
-        
-        input: SC: Shape factor
-               epsil: dielectric constant of prestine cell
-               L: Linear supercell dimenstion (V ** 1/3)
-               Madelung: Madelung constant of lattice"""
-    
-    bohr_A = 1 / 1.88973
-    charge = 1.602e-19 #C
-    e0 = 8.8541878e-12 #F/m
-
-    #convert from bohr to meter
-    L *= bhor_A * 1e-10
-
-    return  ( 1 + SC * (1 - 1 / epsil) ) * (charge) * medalung / (2 * epsil * L * e0)
 
 def bandfill(file, VBM, CBM):
     """Computes the correction term due moss burnstein type band filling which occures due to unphysically large defect concentrations.
@@ -139,14 +98,18 @@ def bandfill(file, VBM, CBM):
        
        Host VBM and CBM values after potential alignment
        file: Name of file containing as columns the occupations, energy eigenvalues and wights"""
-       
+
+    #load energies (eV) occupations and weights
     data = np.loadtxt(file, skiprows=1)
-       
     energies = data[:, 3]
     occupations = data[:, 4]
     weights = data[:, 5]
-    
+
+
+    #shallow donor correction
     sd = -1 * weights * occupations * (energies - CBM)
+   
+    #shallow acceptor correction
     sd = np.sum(sd[energies > CBM])
 
     sa = weights * (1 - occupations) * (energies - VBM)
@@ -158,11 +121,29 @@ def bandfill(file, VBM, CBM):
     
         
 
-    
 class cell(object):
+    """unit cell object. Attributes: 
+                         1. lattice: 3x3 matrix storing lattice vectros as its columns
+                         2. atoms: list of atom object, specifying the atomic basis of the unit cell
+                                   each atom object stores the name and position of the atom
 
+                         Contains methods for unit cell manipulation and calculating corrections to the formation energy in the supercell aproach
+    """
+    
     def __init__(self, file='', atoms=[], lattice=[]):
-        """Reads a structure file and extracts out the atoms, lattice vectors and lattice parameter"""
+        """2 ways to initiallize a lattice object: 1. specify the lattice matrix and list of atom objects
+                                                   2. specify a file with format: alat
+                                                                                   v1(1) v1(2) v1(3)
+                                                                                   v2(1) v2(2) v2(3)
+                                                                                   v3(1) v3(2) v3(3)
+                                                                                   A x1(1) x2(1) x3(1)
+                                                                                   B x2(1) x2(2) x2(3)
+                                                                                      ...........
+                                                                                      ...........
+                                                      First line containes the lattice parameter, the next 3 the lattice vectors, 
+                                                      the rest of the file should specify the atom name and position
+      """
+        
         if not len(atoms) or not len(lattice):
             
             with open(file, 'r') as file:
@@ -307,6 +288,8 @@ class cell(object):
         self.atoms = atoms
 
     def __str__(self):
+        """Prints to stdout in the same format as the input file for instantiating object"""
+        
         string = "{}\n".format(self.alat)
 
         for i in range(3):
@@ -316,10 +299,16 @@ class cell(object):
             string += "{} {} {} {}\n".format(atom.name, atom.pos[0], atom.pos[1], atom.pos[2])
                         
         return string
-###############################EWALD############################
-    def realSpace(self,convP, eps=np.identity(3)):
+    
+"""This section contains a series of methods for computing the image charge correction"""
 
-        #eps = dielectric Tensor
+    def realSpace(self,convP, eps=np.identity(3)):
+        """Computes the real space part of the Ewald sum
+           Parameters: convP = Ewald convergence parameter
+                        eps   = Dielectric Tensor (if material is isotropic provide the full tensor i.e. eps * np.identiy(3))
+
+        """
+        
         ieps = inv(eps)
         deps = det(eps)
 
@@ -327,10 +316,10 @@ class cell(object):
         sumDir = 0
         sConvP  = np.sqrt(convP)
 
-        #ensures that sum does not exceed erfc(15)
-        iRange  = int( 15 /  (np.sqrt(convP) * norm(lattice[:, 0])) ) + 1
-        jRange =  int( 15 /  (np.sqrt(convP) * norm(lattice[:, 1])) ) + 1
-        kRange =  int( 15 /  (np.sqrt(convP) * norm(lattice[:, 2])) ) + 1
+        #Limits the terms of the sum to less than  erfc(15) (beyond which the terms of the sum are negligible)
+        iRange  = int( 15 /  (sConvP * norm(lattice[:, 0])) ) + 1
+        jRange =  int( 15 /  (sConvP * norm(lattice[:, 1])) ) + 1
+        kRange =  int( 15 /  (sConvP * norm(lattice[:, 2])) ) + 1
 
 
         for i in range(-iRange, iRange + 1):
@@ -349,21 +338,30 @@ class cell(object):
     
         return  sumDir * norm(lattice[:, 0])
 
-    def reciprocal(self, thr, convP, eps=np.identity(3), r=np.zeros(3)):
+    def reciprocal(self, thr, convP, eps=np.identity(3)):
+        """Computes the reciprocal space part of the ewald sum
+           Parameters: thr   = Energy cut off in eV (Tune this wrt the conergence parameter to find a reasonable value)
+                       convP = Ewald convergence Parameter
+                       eps   = Dielectric Tensor
+        """
+
+        
         lattice = self.lattice
         V = np.dot(lattice[:, 0], np.cross(lattice[:, 1], lattice[:, 2]))
-    
+
+        #reciprocal lattice vectors
         rec = np.empty((3,3))
         rec[:, 0] = 2 * np.pi * np.cross(lattice[:, 1], lattice[:, 2]) / V
         rec[:, 1] = 2 * np.pi * np.cross(lattice[:, 2], lattice[:, 0]) / V
         rec[:, 2] = 2 * np.pi * np.cross(lattice[:, 0], lattice[:, 1]) / V
 
         sumRec = 0
+        thr = thr / ( 13.605698066 * 2 ) #energy in Hartree atomic units
 
-        thr = thr / (13.605698066 * 2 ) #energy in Hartree
-        iRange = int( np.sqrt(thr) / norm(lattice[:, 0]) ) + 1
-        jRange = int( np.sqrt(thr) / norm(lattice[:, 1]) ) + 1
-        kRange = int( np.sqrt(thr) / norm(lattice[:, 2]) ) + 1
+        #Limits the terms of the sum to the energy cutoff provided by thr
+        iRange = int( np.sqrt(2 * thr) / norm(lattice[:, 0]) ) + 1
+        jRange = int( np.sqrt(2 * thr) / norm(lattice[:, 1]) ) + 1
+        kRange = int( np.sqrt(2 * thr) / norm(lattice[:, 2]) ) + 1
         
         for i in range(-iRange, iRange + 1):
 
@@ -384,26 +382,31 @@ class cell(object):
         return sumRec
 
     def ewaldPot(self, thr, convP, charge, eps=np.identity(3)):
+        """Ewald Potential obtained by adding the real and reciprical space contributions"""
+        
         deps = det(eps)
         lattice = self.lattice
         V = np.dot(lattice[:, 0], np.cross(lattice[:, 1], lattice[:, 2]))
         rsum = self.realSpace(convP, eps)
         gsum = self.reciprocal(thr, convP, eps)
         sconvP = np.sqrt(convP)
-                   
+
+        
         pot = rsum + gsum - np.pi / (V * convP) - (2 * sconvP) / np.sqrt(np.pi * deps)
         return pot * charge
 
     def firstO(self, thr, convP, charge,eps=np.identity(3)):
-        """Screened coloumb energy of a periodic array of point charges in a uniform neutralizing background """
+        """Screened coloumb energy of a periodic array of point charges in a uniform neutralizing background, obtained by integrating the ewaldPot"""
         return self.ewaldPot(thr, convP, charge, eps) * -1 * charge / 2 
 
 
-    def integrate(self, size=100):
-        """Integrate over a weiner seitz cell of the lattice
-        size = grid size
+    def integrate(self, size=200):
+        """Integrate over a weigner seitz cell of the lattice using simple Reinman sum
+        size = grid density for integral (size x size x size)
         Sampeling center of voxels
-        dx = """
+        
+        Note: This is very slow; Better to vectorize
+        """
         
         lattice = self.lattice
     
@@ -439,30 +442,33 @@ class cell(object):
                     #the smallest coordinate is in the weigner seitz cell
                     sum += np.min(candidate_integrand)
                 
-        #integration is done in crystall coordinate (1/V = det(Jacobian))
+        #integration is done in crystal coordinate (1/V = det(Jacobian))
         return  sum / (V * size ** 3)
 
-    def correction1(charge, eps, thr, convP):
-    
-        thirdOrder = integrate(size=100)* (4 * np.pi / 3 * charge ** 2) * (1 - 1 / eps) / eps
-        firstOrder = firstO(thr, convP, charge, eps * np.identity(3))
-    
-        return firstOrder - thirdOrder
-
-    def shapeFactor(self, thr, convP):
-        E1 = self.firstO(thr, convP, 1, eps=np.identity(3))
+    def correction1(self, charge, eps, thr, convP):
         
-        E3 = self.integrate(size=50) * -1 * (2 * np.pi / 3)
+        thirdOrder = self.integrate(size=100)* (4 * np.pi / 3 * charge ** 2) * (1 - 1 / eps) / eps
+        firstOrder = self.firstO(thr, convP, charge, eps * np.identity(3))
+    
+        return (firstOrder - thirdOrder) * (27.211396)
+
+    def shapeFactor(self, thr, convP, size=200):
+        """Shape factor for calcualtion of the image charge correction"""
+        
+        firstO = self.firstO(thr, convP, 1, eps=np.identity(3))
+        
+        thirdO = self.integrate(size) * -1 * (2 * np.pi / 3)
 
         
-        return E3 / E1
+        return thirdO / firstO
 
     def LZ_img(self, thr, convP, charge, eps):
         """Expects all quantities in Hartree atomic units (hbar = e = me = 1)"""
-        """Lany and Zunger correction to the spurious electrostatic intraction between defects"""
-        return self.firstO(thr, convP, charge, eps * np.identity(3)) * (1 + self.shapeFactor(thr, convP) * (1 - 1 / eps)) * 27.211396
+        """Lany and Zunger correction to the spurious electrostatic intraction between defects
+           Output: Image charge correction in eV"""
+        return self.firstO(thr, convP, charge, eps * np.identity(3)) * (1 + self.shapeFactor(thr, convP, 100) * (1 - 1 / eps)) * 27.211396
         
-    ###################Potential Allignment################
+"""Methods for performing atomic sphere averaging and potential alignment"""
 
     def atomSphereAvg(self, potFile, radii):
         """Atom sphere averaged potential difference between host and defect potentials (PP + Hartree)
@@ -507,16 +513,22 @@ class cell(object):
         return spherePots
 
 
-    def potAllign(host, defect, cellH, cellD, radii, thr):
+    def potAllign(host, defect, cellH, cellD, radH, radD, thr, defectPos=np.array([0,0,0])):
         """ Assumes defect is the first element of the atom list"""
         
-        hostPot = cellH.atomSphereAvg(host, radii)
-        defectPot = cellD.atomSphereAvg(defect, radii)
+        """ Currently planar averages
+        1. Average potential over same atom type
+        2. take difference between average and actual
+        3. Exclude atom if difference is beyond threshold (want potential at atomic sites far away from defect)
+        4. Take the difference between potentail of defect and host at accepetible atomic sites then average for alignment
+        """
+        hostPot = cellH.atomSphereAvg(host, radH)
+        defectPot = cellD.atomSphereAvg(defect, radD)
 
         
         #Not considering potential at defect site in average
         if len(cellH.atoms) > len(cellD.atoms):
-
+            print("ppoooop")
             atomsD = cellD.atoms
             atomsH = cellH.atoms[1:]
             hostPot = hostPot[1:]
@@ -534,7 +546,24 @@ class cell(object):
             
             atomsH = cellH.atoms[1:]
             hostPot = hostPot[1:]
+
+        lattice = cellD.lattice
+        atomPos = []
+        print(len(defectPot), len(hostPot))
+        #compute distance to defect
+        for at in atomsD:
+            positions = []
+            for i in [-1, 0, 1]:
+                for j in [-1, 0, 1]:
+                    for k in [-1, 0, 1]:
+                        R = i * lattice[:, 0] + j * lattice[:, 1] + k * lattice[:, 2]
+                        positions.append( norm(at.pos - (defectPos + R)) )
+                        
+            atomPos.append(min(positions))
+                        
             
+
+        
         avgPot = np.average(defectPot)
         std = np.std(defectPot)
     
@@ -543,30 +572,51 @@ class cell(object):
         #include only those atoms in defect cell whose potential is within 1 std of the average defect potential
         copyDefectPot = list(defectPot)
 
-        defectPot2 = []
-        hostPot2 = []
-        for potH, potD in zip(defectPot, hostPot):
+        
+        #average the potential for defects at equivalent sites
+        #find positions with the same distance from the defect
+        sames = []
+        for i in range(len(atomPos)):
+            same = []
+            for j in range(len(atomPos)):
 
-            if abs( (potD - avgPot) / std ) < 0.5:
+                if abs(atomPos[i] - atomPos[j]) < 0.0001:
+                    same.append(j)
+            sames.append(same)
 
-                defectPot2.append(potD)
-                hostPot2.append(potH)
+        sames = [tuple( sorted(i)  ) for i in sames]
+        sames = set(sames)
+        sames = list(map(list, sames))
+        print(sames)
+        
+        difference = np.array(defectPot) - np.array(hostPot)
+        newPot = []
+        newDist = []
+        for same in sames:
+            newPot.append(np.average(difference[same]))
+            newDist.append(atomPos[same[0]])
+            
+        newPot = np.array(newPot)
+        newDist = np.array(newDist)
+            
+        
+        
         import matplotlib.pyplot as plt
+        
         #plot against distance to defect
-        plt.plot(np.array(defectPot2) - np.array(hostPot2))
+        plt.plot(newDist, newPot, 'o')
         plt.show()
-        return np.average( np.array(defectPot2) - np.array(hostPot2) )
+       
 
 
 
 class atom(cell):
-
+    """Atom object. Attributes: 1.name: Element name
+                                2.pos: position of atom in unit cell"""
     
-    
-    def __init__(self, name, pos, charge=0):
+    def __init__(self, name, pos):
         self.name = name
         self.pos = pos
-        self.charge=charge
 
     def __str__(self):
         return  "{}\t{} {} {}".format(self.name, *self.pos)
