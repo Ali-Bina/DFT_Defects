@@ -489,7 +489,9 @@ class cell(object):
         n = int( norm(self.lattice[:, 0]) / norm(vx) )
         l = int( norm(self.lattice[:, 1]) / norm(vy) )
         m = int( norm(self.lattice[:, 2]) / norm(vz) )
-        #pot_int = interpolate((n, l, m), Pot)
+
+        #interpolate the potential grid
+        pot_int = interpolate((n, l, m), Pot)
         
         for at, normR in zip(self.atoms, radii):
             rads = np.linspace(0, normR, lenRad)[1:]
@@ -514,12 +516,7 @@ class cell(object):
                         #finds the indices in the 3d potential array (ipos) corresponding
                         #to the position on the sphere (pos)
                         pos *= np.array( [n, l, m]  )
-                        ipos = np.array(list(map(round, pos)), int)
-
-                        #avoid index out of range when rounding up
-                        ipos[ipos == Pot.shape[0]] -= 1
-                    
-                        radAvg += Pot[tuple(ipos)]
+                        radAvg += pot_int(pos)
 
             spherePots.append( radAvg  / (lenTheta * lenPhi * lenRad) )
             
