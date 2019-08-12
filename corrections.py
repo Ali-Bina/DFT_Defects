@@ -4,7 +4,7 @@ Created on Wed Jun 26 15:15:39 2019
 
 @author: Ali
 """
-
+from scipy.interpolate import RegularGridInterpolator as interpolate
 import numpy as np
 from scipy.special import erfc
 from numpy.linalg import norm, inv, det
@@ -182,39 +182,35 @@ class cell(object):
         """Returns coordeinates of atoms closest to the point pos in space"""
         pass
 
-    def prim(cell):
+    def prim(position):
         """returns position of atoms in the primitive cell"""
 
-        newAtoms = []
-        newPos = np.array(3)
         
-        for at in cell.atoms:
-
-            #position in crystal coordinates
-            newPos[:] = dot(inv(cell.lattice), at.pos)
-            
-            
-            for i in range(3):
-                while True:
-                    
-                    if at.pos[i] >=1:
-                        newPos[i] -=1
+        newPos = np.array( [round(pos, 6) for pos in position]  )
+        
+        for i in range(3):
+            while True:
+                
+                if newPos[i] >=1:
                         
-                    elif at.pos[i] < 0:
+                    newPos[i] -=1
                         
-                        newPos[i] += 1
+                elif newPos[i] < 0:
+                        
+                    newPos[i] += 1
 
-                    else:
-                        break
-                    
-            newAtoms.append(atom(at.name, newPos))
-
-
-            return newAtoms
+                else:
+                    break
+                
+        return newPos
     
     def RtoO(cel):
         """Converts a rhombohedral primitive lattice to an orthorhombic cell
-          !!!!Assumes atomic positions are in crystal coordinates!!!!"""
+           input: cel object, of rhombohedral cell with atomic positions given in CRYSTAL COORDINATES
+
+           output: New cell object for the orthorhombic super cell
+  
+"""
     
         #matrix of the rhombohedral lattice vectors
         lattice = cel.lattice
@@ -266,7 +262,8 @@ class cell(object):
         return cell(0, atomsO, lattice_O)
                 
     def super(self, n, l, m):
-        """Creates a super cell by scalling each primitive lattice vector by n, l, m"""
+        """Creates a super cell by scalling each primitive lattice vector by n, l, m
+           Assumes atomic positions are in crystal coordinates"""
         lattice = self.lattice
 
         lattice[:, 0] *= n
@@ -300,7 +297,7 @@ class cell(object):
                         
         return string
     
-"""This section contains a series of methods for computing the image charge correction"""
+    """This section contains a series of methods for computing the image charge correction"""
 
     def realSpace(self,convP, eps=np.identity(3)):
         """Computes the real space part of the Ewald sum
@@ -316,10 +313,10 @@ class cell(object):
         sumDir = 0
         sConvP  = np.sqrt(convP)
 
-        #Limits the terms of the sum to less than  erfc(15) (beyond which the terms of the sum are negligible)
-        iRange  = int( 15 /  (sConvP * norm(lattice[:, 0])) ) + 1
-        jRange =  int( 15 /  (sConvP * norm(lattice[:, 1])) ) + 1
-        kRange =  int( 15 /  (sConvP * norm(lattice[:, 2])) ) + 1
+        #Limits the terms of the sum to less than  erfc(10) (beyond which the terms of the sum are negligible)
+        iRange  = int( 10 /  (sConvP * norm(lattice[:, 0])) ) + 1
+        jRange =  int( 10 /  (sConvP * norm(lattice[:, 1])) ) + 1
+        kRange =  int( 10 /  (sConvP * norm(lattice[:, 2])) ) + 1
 
 
         for i in range(-iRange, iRange + 1):
@@ -333,7 +330,7 @@ class cell(object):
                    
                    R = i * lattice[:, 0] + j * lattice[:, 1] + k * lattice[:, 2]
                    arg = np.sqrt( dot(R, dot(ieps, R)) )
-
+                   #print(erfc( sConvP * arg) / arg / np.sqrt(deps))
                    sumDir += erfc( sConvP * arg) / arg / np.sqrt(deps)  
     
         return  sumDir * norm(lattice[:, 0])
@@ -376,6 +373,7 @@ class cell(object):
 
                     arg = dot(G, dot(eps, G))
                     normG = norm(G)
+                    #print("Kspace: ", 4 * np.pi / V  * np.exp( -arg / (4 * convP)) / arg)
                     sumRec += 4 * np.pi / V  * np.exp( -arg / (4 * convP)) / arg
 
 
@@ -463,12 +461,12 @@ class cell(object):
         return thirdO / firstO
 
     def LZ_img(self, thr, convP, charge, eps):
-        """Expects all quantities in Hartree atomic units (hbar = e = me = 1)"""
+        """Expects all quantities in Hartree atomic units (hbar = e = me = 1), i.e. length in bohr"""
         """Lany and Zunger correction to the spurious electrostatic intraction between defects
            Output: Image charge correction in eV"""
         return self.firstO(thr, convP, charge, eps * np.identity(3)) * (1 + self.shapeFactor(thr, convP, 100) * (1 - 1 / eps)) * 27.211396
         
-"""Methods for performing atomic sphere averaging and potential alignment"""
+    """Methods for performing atomic sphere averaging and potential alignment"""
 
     def atomSphereAvg(self, potFile, radii):
         """Atom sphere averaged potential difference between host and defect potentials (PP + Hartree)
@@ -476,47 +474,66 @@ class cell(object):
                         radii: Radius of the sphere about each atom to the averaging at"""
     
         Pot, vx, vy, vz  = readPotential(potFile)
-
+        print(vx, vy, vz, sep='\n')
         #Sphere average host potential at atomic positions for host
         spherePots = []
     
-        lenTheta = 50
-        lenPhi = 50
+        lenTheta = 20
+        lenPhi = 20
+        lenRad = 20
         vRad = np.zeros(3)
         thetas = np.linspace(0, np.pi, lenTheta)
         phis = np.linspace(0, 2 * np.pi, lenPhi)
+
+        #number of grid points along each direction
+        n = int( norm(self.lattice[:, 0]) / norm(vx) )
+        l = int( norm(self.lattice[:, 1]) / norm(vy) )
+        m = int( norm(self.lattice[:, 2]) / norm(vz) )
+        #pot_int = interpolate((n, l, m), Pot)
         
         for at, normR in zip(self.atoms, radii):
-
+            rads = np.linspace(0, normR, lenRad)[1:]
+            
             #generate points on the surface of a sphere
             radAvg = 0
-            for theta in thetas:
-                for phi in phis:
+            for rad in rads:
+                for theta in thetas:
+                    for phi in phis:
 
-                    vRad[0] = normR * np.sin(theta) * np.cos(phi)
-                    vRad[1] = normR * np.sin(theta) * np.sin(phi)
-                    vRad[2] = normR * np.cos(theta)
+                        vRad[0] = rad * np.sin(theta) * np.cos(phi)
+                        vRad[1] = rad * np.sin(theta) * np.sin(phi)
+                        vRad[2] = rad * np.cos(theta)
 
-                    #point on the sphere about the atom in cartesian coordinates
-                    pos = np.dot(self.lattice, at.pos) + vRad
-                    pos = np.array(pos, dtype='float')
+                        #point on the sphere about the atom in cartesian coordinates
+                        pos = np.dot(self.lattice, at.pos) + rad
+                    
+                        pos = np.dot( inv(self.lattice), pos  ) #back to crystal
+                        pos = cell.prim(pos) #find position in unit cell
 
-                    #find approximate postion of sphere point interms of array index
-                    ipos = np.dot(inv(np.array([vx, vy, vz], dtype='float')), pos)
-                    ipos = np.array(list(map(int, ipos)))
+                    
+                        #finds the indices in the 3d potential array (ipos) corresponding
+                        #to the position on the sphere (pos)
+                        pos *= np.array( [n, l, m]  )
+                        ipos = np.array(list(map(round, pos)), int)
 
-                    radAvg += Pot[tuple(ipos)]
+                        #avoid index out of range when rounding up
+                        ipos[ipos == Pot.shape[0]] -= 1
+                    
+                        radAvg += Pot[tuple(ipos)]
 
-            spherePots.append( radAvg  / (lenTheta * lenPhi) )
+            spherePots.append( radAvg  / (lenTheta * lenPhi * lenRad) )
             
 
         return spherePots
 
 
-    def potAllign(host, defect, cellH, cellD, radH, radD, thr, defectPos=np.array([0,0,0])):
-        """ Assumes defect is the first element of the atom list"""
+    def potAllign(host, defect, cellH, cellD, radH, radD, thr, index):
         
         """ Currently planar averages
+
+        index = index of defect in the pristine host cell
+
+
         1. Average potential over same atom type
         2. take difference between average and actual
         3. Exclude atom if difference is beyond threshold (want potential at atomic sites far away from defect)
@@ -524,29 +541,8 @@ class cell(object):
         """
         hostPot = cellH.atomSphereAvg(host, radH)
         defectPot = cellD.atomSphereAvg(defect, radD)
-
+        defectAtom = cellH.atoms[index]
         
-        #Not considering potential at defect site in average
-        if len(cellH.atoms) > len(cellD.atoms):
-            print("ppoooop")
-            atomsD = cellD.atoms
-            atomsH = cellH.atoms[1:]
-            hostPot = hostPot[1:]
-
-        elif len(cellH.atoms) < len(cellD.atoms):
-
-            atomsD = cellD.atoms[1:]
-            defectPot = defectPot[1:]
-            atomsH = cellH.atoms
-
-        else:
-
-            atomsD = cellD.atoms[1:]
-            defectPot = defectPot[1:]
-            
-            atomsH = cellH.atoms[1:]
-            hostPot = hostPot[1:]
-
         lattice = cellD.lattice
         atomPos = []
         print(len(defectPot), len(hostPot))
