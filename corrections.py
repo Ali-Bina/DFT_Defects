@@ -177,11 +177,6 @@ class cell(object):
             self.lattice = lattice
                         
 
-
-    def NN(self, pos):
-        """Returns coordeinates of atoms closest to the point pos in space"""
-        pass
-
     def prim(position):
         """returns position of atoms in the primitive cell"""
 
@@ -443,22 +438,15 @@ class cell(object):
         #integration is done in crystal coordinate (1/V = det(Jacobian))
         return  sum / (V * size ** 3)
 
-    def correction1(self, charge, eps, thr, convP):
-        
-        thirdOrder = self.integrate(size=100)* (4 * np.pi / 3 * charge ** 2) * (1 - 1 / eps) / eps
-        firstOrder = self.firstO(thr, convP, charge, eps * np.identity(3))
-    
-        return (firstOrder - thirdOrder) * (27.211396)
-
     def shapeFactor(self, thr, convP, size=200):
         """Shape factor for calcualtion of the image charge correction"""
         
-        firstO = self.firstO(thr, convP, 1, eps=np.identity(3))
+        firstOrder = self.firstO(thr, convP, 1, eps=np.identity(3))
         
-        thirdO = self.integrate(size) * -1 * (2 * np.pi / 3)
+        thirdOrder = self.integrate(size) * -1 * (2 * np.pi / 3)
 
         
-        return thirdO / firstO
+        return thirdOrder / firstOrder
 
     def LZ_img(self, thr, convP, charge, eps):
         """Expects all quantities in Hartree atomic units (hbar = e = me = 1), i.e. length in bohr"""
@@ -490,8 +478,11 @@ class cell(object):
         l = int( norm(self.lattice[:, 1]) / norm(vy) )
         m = int( norm(self.lattice[:, 2]) / norm(vz) )
 
+        x = np.linspace(0, 1, Pot.shape[0])
+        y = np.linspace(0, 1, Pot.shape[1])
+        z = np.linspace(0, 1, Pot.shape[2])
         #interpolate the potential grid
-        pot_int = interpolate((n, l, m), Pot)
+        pot_int = interpolate((x, y, z), Pot)
         
         for at, normR in zip(self.atoms, radii):
             rads = np.linspace(0, normR, lenRad)[1:]
@@ -515,7 +506,6 @@ class cell(object):
                     
                         #finds the indices in the 3d potential array (ipos) corresponding
                         #to the position on the sphere (pos)
-                        pos *= np.array( [n, l, m]  )
                         radAvg += pot_int(pos)
 
             spherePots.append( radAvg  / (lenTheta * lenPhi * lenRad) )
