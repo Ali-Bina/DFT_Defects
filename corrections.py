@@ -466,12 +466,14 @@ class cell(object):
         #Sphere average host potential at atomic positions for host
         spherePots = []
     
-        lenTheta = 20
-        lenPhi = 20
-        lenRad = 20
+        lenTheta = 10
+        lenPhi = 10
+        lenRad = 10
         vRad = np.zeros(3)
         thetas = np.linspace(0, np.pi, lenTheta)
+        dtheta = thetas[1] - thetas[0]
         phis = np.linspace(0, 2 * np.pi, lenPhi)
+        dphi = phis[1] - phis[0]
 
         #number of grid points along each direction
         n = int( norm(self.lattice[:, 0]) / norm(vx) )
@@ -486,6 +488,7 @@ class cell(object):
         
         for at, normR in zip(self.atoms, radii):
             rads = np.linspace(0, normR, lenRad)[1:]
+            dR = rads[1] - rads[0]
             
             #generate points on the surface of a sphere
             radAvg = 0
@@ -498,7 +501,7 @@ class cell(object):
                         vRad[2] = rad * np.cos(theta)
 
                         #point on the sphere about the atom in cartesian coordinates
-                        pos = np.dot(self.lattice, at.pos) + rad
+                        pos = np.dot(self.lattice, at.pos) + vRad
                     
                         pos = np.dot( inv(self.lattice), pos  ) #back to crystal
                         pos = cell.prim(pos) #find position in unit cell
@@ -506,9 +509,9 @@ class cell(object):
                     
                         #finds the indices in the 3d potential array (ipos) corresponding
                         #to the position on the sphere (pos)
-                        radAvg += pot_int(pos)
+                        radAvg += pot_int(pos) * np.sin(theta) * (rad ** 2) * dtheta * dphi * dR
 
-            spherePots.append( radAvg  / (lenTheta * lenPhi * lenRad) )
+            spherePots.append( radAvg  / (4 / 3 * np.pi * (normR ** 3)) )
             
 
         return spherePots
