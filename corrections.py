@@ -130,7 +130,7 @@ class cell(object):
                          Contains methods for unit cell manipulation and calculating corrections to the formation energy in the supercell aproach
     """
     
-    def __init__(self, file='', atoms=[], lattice=[]):
+    def __init__(self, file='', atoms=[], lattice=[], alat=0):
         """2 ways to initiallize a lattice object: 1. specify the lattice matrix and list of atom objects
                                                    2. specify a file with format: alat
                                                                                    v1(1) v1(2) v1(3)
@@ -147,32 +147,38 @@ class cell(object):
         if not len(atoms) or not len(lattice):
             
             with open(file, 'r') as file:
+                lines = file.readlines()
 
+                self.alat = 0
+                
                 #lattice parameter is the first line of file
-                self.alat = float( file.readline() )
+                if len(lines[0].split()) == 1:
+                    self.alat = float( lines[0][:-2] )
+                    lines = lines[1:]
+                    
                 self.lattice = np.zeros( (3,3) )
                 self.atoms = []
                 
                 #next 3 lines specify the lattice vectors
                 for i in range(3):
-                    line = file.readline()
+                    line = lines[i][:-2]
                     line = line.split()
                     self.lattice[:, i] = np.array([float(line[0]), float(line[1]), float(line[2])])
 
 
                 #rest of the file specifies atom names and their positions in the lattice
-                line = file.readline()
+                lines = lines[3:]
                     
-                while(line):
+                for line in lines:
+                    line = line[:-2]
                     fields = line.split()
                     pos = [float(x) for x in fields[1:]]
                     self.atoms.append( atom( fields[0], np.array(pos) ) )
 
-                    line = file.readline()
                         
         else:
 
-            self.alat=0
+            self.alat=alat
             self.atoms = atoms
             self.lattice = lattice
                         
@@ -281,8 +287,9 @@ class cell(object):
 
     def __str__(self):
         """Prints to stdout in the same format as the input file for instantiating object"""
-        
-        string = "{}\n".format(self.alat)
+        string=''
+        if self.alat != 0:
+            string = "{}\n".format(self.alat)
 
         for i in range(3):
             string += str(self.lattice[:, i])[1:-1] + "\n"
@@ -332,7 +339,7 @@ class cell(object):
 
     def reciprocal(self, thr, convP, eps=np.identity(3)):
         """Computes the reciprocal space part of the ewald sum
-           Parameters: thr   = Energy cut off in eV (Tune this wrt the conergence parameter to find a reasonable value)
+           Parameters: thr   = Energy cut off in eV (Tune this wrt the conergence parameter to find a reasonable value) for the reciprocal space sum
                        convP = Ewald convergence Parameter
                        eps   = Dielectric Tensor
         """
@@ -452,33 +459,30 @@ class cell(object):
         """Expects all quantities in Hartree atomic units (hbar = e = me = 1), i.e. length in bohr"""
         """Lany and Zunger correction to the spurious electrostatic intraction between defects
            Output: Image charge correction in eV"""
-        return self.firstO(thr, convP, charge, eps * np.identity(3)) * (1 + self.shapeFactor(thr, convP, 100) * (1 - 1 / eps)) * 27.211396
+        scalarEps = eps[0, 0]
+        return self.firstO(thr, convP, charge, eps) * (1 + self.shapeFactor(thr, convP, 100) * (1 - 1 / scalarEps)) * 27.211396
         
     """Methods for performing atomic sphere averaging and potential alignment"""
 
-    def atomSphereAvg(self, potFile, radii):
+    def atomSphereAvg(self, potFile, radii, n):
         """Atom sphere averaged potential difference between host and defect potentials (PP + Hartree)
            Parameters: potFile: PP + vHartree as a cube file from pp.x output
-                        radii: Radius of the sphere about each atom to the averaging at"""
+                        radii: Radius of the sphere about each atom to the averaging at
+                            n: Grid density for integration """
     
         Pot, vx, vy, vz  = readPotential(potFile)
         print(vx, vy, vz, sep='\n')
         #Sphere average host potential at atomic positions for host
         spherePots = []
     
-        lenTheta = 10
-        lenPhi = 10
-        lenRad = 10
+        lenTheta = n
+        lenPhi = n
+        lenRad = n
         vRad = np.zeros(3)
         thetas = np.linspace(0, np.pi, lenTheta)
         dtheta = thetas[1] - thetas[0]
         phis = np.linspace(0, 2 * np.pi, lenPhi)
         dphi = phis[1] - phis[0]
-
-        #number of grid points along each direction
-        n = int( norm(self.lattice[:, 0]) / norm(vx) )
-        l = int( norm(self.lattice[:, 1]) / norm(vy) )
-        m = int( norm(self.lattice[:, 2]) / norm(vz) )
 
         x = np.linspace(0, 1, Pot.shape[0])
         y = np.linspace(0, 1, Pot.shape[1])
@@ -490,7 +494,7 @@ class cell(object):
             rads = np.linspace(0, normR, lenRad)[1:]
             dR = rads[1] - rads[0]
             
-            #generate points on the surface of a sphere
+            #Integration
             radAvg = 0
             for rad in rads:
                 for theta in thetas:
@@ -505,10 +509,8 @@ class cell(object):
                     
                         pos = np.dot( inv(self.lattice), pos  ) #back to crystal
                         pos = cell.prim(pos) #find position in unit cell
-
-                    
-                        #finds the indices in the 3d potential array (ipos) corresponding
-                        #to the position on the sphere (pos)
+                        
+                        #Add to riemann sum
                         radAvg += pot_int(pos) * np.sin(theta) * (rad ** 2) * dtheta * dphi * dR
 
             spherePots.append( radAvg  / (4 / 3 * np.pi * (normR ** 3)) )
