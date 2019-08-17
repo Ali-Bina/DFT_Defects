@@ -10,8 +10,8 @@ from scipy.special import erfc
 from numpy.linalg import norm, inv, det
 from numpy import dot
         
-def birch(V, V0, K0, K1):
-    """Birch equation of state, fit to DFT total energy vs V and extract equillibrium V"""
+def Murn(V, V0, K0, K1):
+    """Murnaghan equation of state, fit to DFT total energy vs V and extract equillibrium lattice parameter and Bulk modulus"""
     term1 = 1 / (K1 * (K1 - 1)) * (V / V0 ) ** (1 - K1)
     term2 = V / (K1 * V0) - 1 / (K1 - 1)
     return E0 + K0 * V0 * (term1 + term2)
