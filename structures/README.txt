@@ -1,6 +1,6 @@
-All structures parameters are specified in bohr
+All structure parameters are specified in bohr
 If the first line is a non-0 number then the lattice vectors are expressed in unit of that number
-If there is non number or the number is 0 then the lattice vectors are expressed in bohr
+If there is no number or the number is 0 then the lattice vectors are expressed in bohr
 The files have the format:
 
 Alat
