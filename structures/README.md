@@ -1,4 +1,4 @@
-##File Format:
+## File Format:
 All structure parameters are specified in bohr
 If the first line is a non-0 number then the lattice vectors are expressed in unit of that number
 If there is no number or the number is 0 then the lattice vectors are expressed in bohr
@@ -16,7 +16,7 @@ At x y z
 .....
 
 
-##File Name Convention:
+## File Name Convention:
 SC = simple cube
 r  = rhombohedral
 O  = Orthorhombic
