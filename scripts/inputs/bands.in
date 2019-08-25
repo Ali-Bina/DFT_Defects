@@ -1,0 +1,5 @@
+&BANDS
+    prefix  = 'GeTe'
+    outdir = './'
+    filband = 'GeTe_bands.dat'
+/

@@ -2,17 +2,27 @@
 
 ##########################################################################################
 #Script for submiting jobs to the cluster. Modifies parameters of a pre-exisiting input file (e.g. ecut, k-point, structure,...)
-#Depending on the provided option (-o) perfroms a single scf calculation, band structure, relaxation, DOS, dielectric tensor or convergence w.r.t. Kpoint, lattice parameter or cut off energy
+#To submit the modified QE input as a job, it creates a job script by concatenating scheduler directives contained in the inputs/sch_dir file with a QE command
+#Depending on the provided option (-o) perfroms a single scf calculation, band structure, relaxation, dielectric tensor or convergence w.r.t. Kpoint, lattice parameter or cut off energy
 #Generates input files stored in the inputs director
-#QE outputs are stored in the output directory
+#QE outputs are stored in the outputs directory
 #PP directory stroes psuedos
+
 #structures stores the crystal structure:
 #        line 1  : lattice parameter
 #        line 2-4: primitive lattice vectors
 #        line 5- : atomic basis
+
 # To perform a convergence wrt k, ecut or lattice param provide input in the format:
 # start:step:stop
-#This will submit a series of scf calculations by varying the value  for k/ecut/latParam in the specified range
+#This will submit a series of scf calculations by varying the value  for k/ecut/latParam in the specified range. E.g. to perform convergence w.r.t k grid run:
+#./submit.sh -e 100 -k 3:2:13 -s struct_file -n kTest
+#To perform a single scf calculation you can e.g. run: ./submit.sh -e 100 -k 13:1:13 -s struct_file -n kTest
+
+#To perform calculation on a uniform k-grid (needed for epsilon.x) use the -m option. E.g. -m 5:5:5 generates a 5x5x5 equally weighted k-grid
+#If the -m option is not used in calculating the dielectric tensor then ph.x is used instead of epsilon.x
+
+#For a full list of options run ./submit --help
 ##########################################################################################
 
 
@@ -37,19 +47,20 @@ kpoints(){
     nPoints=$(( $1 * $2 * $3  ))
     submit=`echo -e "$submit\nK_POINTS crystal\n$nPoints"`
     
+    echo -e "$submit"
     #equally weighted k grid in crstal coordinates
-    for (( i=0; i < $1; i++)){
-	for (( j=0; j < $2; j++)){
-		for (( k=0; k < $3; k++)){
-		        
-			Point=` awk -v i=$i -v j=$j -v k=$k -v l=$1 -v m=$2 -v n=$3 'BEGIN {printf "%0.15f\t%0.15f\t%0.15f\t%0.15f\n", i/l, j/m, k/n, 1 / (n * m *l)}'`
-			submit=`echo -e "$submit\n$Point"`
-			
-		    }
-	    }
-	}
+    awk -v l=$l -v m=$m -v n=$n  'BEGIN { for (i = 0; i < l; i++){
+    	   	   	   	 	      for (j = 0; j < m; j++){
+					      	    for (k = 0; k < n; k++){
+						    
+							 printf "%0.15f\t%0.15f\t%0.15f\t%0.15f\n", i/l, j/m, k/n, 1 / (n * m *l)
 
-     echo -e "$submit"
+						     }
+					       }
+					  }
+				       }'
+    
+
     
 }
 
@@ -195,11 +206,26 @@ submit(){
 	    
 	fi
 	
+	#name of file used to write the QE input/output
 	inputName="${name}.in"
+	outputName="${name}.out"
+	
+	#If a directory is specifed for structures then append the structure filename to the name variables
+	#So that the different structures can be distinguished
+	tmp_Name=$Name
+	if [[ $struct != $files ]]; then
+	    struct=`echo -e "$struct" | rev | cut -d'/' -f 1 | rev` #trim everything but name of structure file from path
+	    
+	    Name="${Name}_$struct"
+	    inputName="${name}_${struct}.in"
+	    outputName="${name}_${struct}.out"
+	fi
+
+	#set prefix to Name
+	input=`echo -e "$input" | sed -e "s/prefix[[:blank:]]*=[[:blank:]]*['].*[']/prefix=\'${Name}\'/I"`
+	
 	echo -e "$input" > "inputs/$inputName" #write new input to inputs directory
 	
-	outputName="${name}.out"
-
 	#Write temporary job script to current directory
 	jobScript=`makeJobScript inputs/sch_dir $calc $inputName $outputName`
 	echo -e "$jobScript" > "tmp.sh"
@@ -207,22 +233,25 @@ submit(){
 	##########testing code#########
 	cat tmp.sh
 	echo -e "$input"
-	
+
 	########testing code########
 	
 	#submit temporary jobscript to scheduler
 	if [[ $3 == 'singleton' ]]; then
-	 
+	    
     	    sbatch --time=$time --job-name=$Name --dependency=singleton "tmp.sh"
 	    
     	else
-	 
+	    
     	    sbatch --time=$time --job-name=$Name "tmp.sh"
     	fi
-
+	
+	Name=$tmp_Name
+	
     done
     
     rm  "tmp.sh" #delete jobscript
+    
 }
 
 k_point=0 #K grid density
@@ -259,15 +288,17 @@ while getopts ':o:k:e:s:n:t:c:a:-:m:' c; do
 		"help") 
 		
 		cat << EOF
-parameters: -o: Options for calculations
+parameters: -o: Options for calculations: bands (band structure), epsil (dielectric tensor)
+	                                  relax (variable cell relax), irelax (ionic relax)
 	    -k: kgrid density
     	    -e: Energy cutoff for basis
 	    -a: lattice parameter
 	    -s: structure file
-	    -n: name of file
+	    -c: Total charge for charged cell calculation
+	    -n: Specifies QE prefix
 	    -t: execution time
-      --manual: Specify a nxmxl kgrid manually (Rather than using QE's Automatic))
-	--skip: skips the scf step for the calculations that require it
+            -m: Specify a nxmxl kgrid manually (Rather than using QE's Automatic)
+
 EOF
 		exit;;
 	    esac
@@ -318,7 +349,7 @@ if [[ $k_point =~ $check_regex ]]; then
     for val in $(seq `echo "$k_point" | sed "$range_regex"`); do
 
 	k_point=$val
-	name="scf_${Name}_${k_point}"
+	name="scf_${Name}_k${k_point}"
 	
 	submit inputs/scf.in pw.x 
 	sleep 2
@@ -330,7 +361,7 @@ elif [[ $ecut =~ $check_regex ]]; then
     
     for val in $(seq `echo $ecut | sed "$range_regex"`); do
 	ecut=$val
-	name="scf_${Name}_${ecut}"
+	name="scf_${Name}_e${ecut}"
 	
 	submit inputs/scf.in pw.x
 	sleep 2
@@ -349,7 +380,7 @@ elif [[ $smearing =~ $check_regex ]]; then
       for val in $(seq `echo "$smearing" | sed "$range_regex"`); do
 
 	smearing=$val
-	name="scf_${Name}_${smearing}"
+	name="scf_${Name}_d${smearing}"
 	
 	submit inputs/scf.in pw.x 
 	sleep 2
@@ -367,7 +398,7 @@ elif [[ $lat =~ $check_regex ]]; then
     for val in $(seq `echo "$lat" | sed "$range_regex"`); do
 	
 	lat=$val
-	name="scf_${Name}_${lat}"
+	name="scf_${Name}_a${lat}"
 	
 	submit inputs/scf.in pw.x
 	sleep 2
@@ -398,15 +429,18 @@ elif [[ $options == 'relax' ]]; then
 elif [[ $options == 'irelax' ]]; then
 
     name="relax_${Name}"
-    submit jobs/ion_relax.in pw.x
+    submit inputs/ion_relax.in pw.x
 
 #dielectric tensor
 elif [[ $options == 'epsil' ]]; then
 
-    #if a uniform equally weighted k grid is not provided ph.x is used to calculate
+    #if a uniform equally weighted k grid is not provided ph.x is used to calculate the dielectric tensor
     if (( $n == 0 && $m == 0 && $l == 0 )); then
 
-	echo "error: must specify a uniform k-grid using the -m option"
+	name="scf_${Name}"
+        submit inputs/scf.in pw.x 'singleton'
+	name="ph_eps_${Name}"
+	submit inputs/ph_eps.in ph.x 'singleton'
 
     fi
 

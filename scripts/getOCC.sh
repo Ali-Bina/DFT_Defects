@@ -50,7 +50,7 @@ while read -r line; do
     if [[ "$line" =~ 'k =' ]];then
      
 	flag=1
-	kvect="`echo $line | grep -o '[0-9][0-9]*\.[0-9]*'`"
+	kvect="`echo $line | grep -o '[-]*[0-9][0-9]*\.[0-9]*'`"
 
 
     elif [[ "$line" =~ 'occupation numbers' ]];then

@@ -1,0 +1,63 @@
+
+&control
+    calculation='relax'
+    restart_mode='from_scratch',
+    prefix='GeVac1'
+    pseudo_dir='./PP'
+    verbosity='high'
+    tprnfor=.true.
+    nstep=500
+    tstress=.true.
+    etot_conv_thr=1.0e-05
+    forc_conv_thr=1.0e-04
+    dt=40
+    outdir='./tmp'	
+/
+&system
+    ibrav=0,
+    nat=15, ntyp= 2,
+    ecutwfc = 100,nbnd=100
+    occupations = 'fixed',
+    noncolin=.true.,
+    lspinorb=.true.
+    tot_charge=1	
+/
+&electrons
+    diagonalization='david'
+    conv_thr = 1.0e-8
+    mixing_beta = 0.5
+    electron_maxstep = 500
+    mixing_mode = 'plain'
+/
+&IONS
+  ion_dynamics = 'bfgs'
+/
+ATOMIC_SPECIES
+Ge  72.630  Ge.rel-pbe-n-nc.UPF
+Te  127.60  Te.rel-pbe-n-nc.UPF
+
+CELL_PARAMETERS (bohr)
+ 8.01572197 -4.62787922 13.78755528
+ 0.          9.25575845 13.78755528
+-8.01572197 -4.62787922 13.78755528
+
+ATOMIC_POSITIONS (crystal)
+Te       0.382841823   0.382841823   0.382841823
+Ge       0.118836392   0.118836392   0.609025464
+Te       0.386995400   0.386995400   0.880522774
+Ge       0.118836392   0.609025464   0.118836392
+Te       0.386995400   0.880522774   0.386995400
+Ge       0.105542560   0.618739855   0.618739855
+Te       0.386291518   0.876686463   0.876686463
+Ge       0.609025464   0.118836392   0.118836392
+Te       0.880522774   0.386995400   0.386995400
+Ge       0.618739855   0.105542560   0.618739855
+Te       0.876686463   0.386291518   0.876686463
+Ge       0.618739855   0.618739855   0.105542560
+Te       0.876686463   0.876686463   0.386291518
+Ge       0.632945983   0.632945983   0.632945983
+Te       0.882910176   0.882910176   0.882910176
+
+K_POINTS (automatic) 
+7 7 7  0 0 0
+

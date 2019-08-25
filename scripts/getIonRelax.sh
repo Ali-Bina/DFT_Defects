@@ -5,7 +5,7 @@
 #if time is provided as the second argument then it will resubmit the job with the new coordinates for the specified time
 
 #Program expects an input and an output directory ,storing the QE inputs/outputs, as child directories of the current working directory
-#Stupid idiosyncracy: '.' in file name only before file extention allowed, '_' used to separated prefix from job type, i.e. names like Ge_Te0 can cause problems
+#'.' in file name only before file extention allowed, '_' used to separated prefix from job type, i.e. names like Ge_Te0 can cause problems
 
 output=''
 outputFile=$1

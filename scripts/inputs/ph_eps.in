@@ -1,0 +1,14 @@
+
+&inputph
+outdir='./'
+prefix='epsil'
+tr2_ph=1d-14
+epsil=.true.
+ldisp=.false.
+amass(1)=72.630
+amass(2)=127.60
+fildyn='GeTe.dyn'
+/
+
+0 0 0
+
