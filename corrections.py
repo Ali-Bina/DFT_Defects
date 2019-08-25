@@ -4,12 +4,14 @@ Created on Wed Jun 26 15:15:39 2019
 
 @author: Ali
 """
+import math
 from scipy.interpolate import RegularGridInterpolator as interpolate
 import numpy as np
 from scipy.special import erfc
 from numpy.linalg import norm, inv, det
 from numpy import dot
-        
+import matplotlib.pyplot as plt
+
 def Murn(V, V0, K0, K1):
     """Murnaghan equation of state, fit to DFT total energy vs V and extract equillibrium lattice parameter and Bulk modulus"""
     term1 = 1 / (K1 * (K1 - 1)) * (V / V0 ) ** (1 - K1)
@@ -93,6 +95,7 @@ def readPotential(file):
 
 
 def bandfill(file, VBM, CBM):
+    #if occupations dont add to one maybe must devide by their sum, magnitude of PA is used
     """Computes the correction term due moss burnstein type band filling which occures due to unphysically large defect concentrations.
        Computes the correction for shallow donors and acceptros
        
@@ -105,14 +108,14 @@ def bandfill(file, VBM, CBM):
     occupations = data[:, 4]
     weights = data[:, 5]
 
-
+    print(np.sum(weights))
     #shallow donor correction
     sd = -1 * weights * occupations * (energies - CBM)
    
     #shallow acceptor correction
     sd = np.sum(sd[energies > CBM])
 
-    sa = weights * (1 - occupations) * (energies - VBM)
+    sa = weights * (2 - occupations) * (energies - VBM)
     sa = np.sum(sa[energies < VBM])
 
 
@@ -130,7 +133,7 @@ class cell(object):
                          Contains methods for unit cell manipulation and calculating corrections to the formation energy in the supercell aproach
     """
     
-    def __init__(self, file='', atoms=[], lattice=[], alat=0):
+    def __init__(self, file='', atoms=[], lattice=[], alat=1):
         """2 ways to initiallize a lattice object: 1. specify the lattice matrix and list of atom objects
                                                    2. specify a file with format: alat
                                                                                    v1(1) v1(2) v1(3)
@@ -149,7 +152,7 @@ class cell(object):
             with open(file, 'r') as file:
                 lines = file.readlines()
 
-                self.alat = 0
+                self.alat = 1
                 
                 #lattice parameter is the first line of file
                 if len(lines[0].split()) == 1:
@@ -518,82 +521,256 @@ class cell(object):
 
         return spherePots
 
+    def findDefect(self, host, defect, threshold = 0.1):
+        """Finds and returns  the defect atom in the defect cell by comparing to host
+           host: cell object for the host
+           defect: cell object for the defect
+           threshold: threshold for determining equivalent atoms in bohr (since atoms 
+                      move after relaxation positions must be compared using a threshold)"""
 
-    def potAllign(host, defect, cellH, cellD, radH, radD, thr, index):
+        
+        atomsD = defect.atoms
+        atomsH = host.atoms
+
+        atomCountH = dict()
+        for at in atomsH:
+
+            if at.name not in atomCountH.keys():
+
+                atomCountH[at.name] = 0
+
+            atomCountH[at.name] += 1
+            
+
+        atomCountD = dict()
+        for at in atomsD:
+
+            if at.name not in atomCountD.keys():
+
+                atomCountD[at.name] = 0
+
+            atomCountD[at.name] += 1
+
+        numAtomsH = sum(atomCountH.values())
+        numAtomsD = sum(atomCountD.values())
+    
+        defectType = ''
+        Defect = ()
+        if numAtomsH == numAtomsD:
+
+            if atomCountH.keys() == atomCountD.keys():
+                
+                defectType = 'anti Site'
+                    
+            else:
+
+                defectType = 'substitutional'
+
+            for atH, atD in zip(atomsH, atomsD):
+
+                if atH.name != atD.name:
+
+                    #Tuple of defect type and defect position
+                    Defect = ("{}_{}".format(atD.name, atH.name), atD.pos)
+                
+        elif numAtomsH > numAtomsD:
+            defectType = 'Vacancy'
+
+            for atH in atomsH:
+                #print("--------------------------")
+                for atD in atomsD:
+                    #print(atD.pos - atH.pos)
+                    #same atom found in host and defect (not vacancy)
+                    if atH.name == atD.name and np.sum(abs(atD.pos - atH.pos) < threshold) == 3:
+                    
+                        break
+
+                else:
+
+                    #if the atom in host is not found in defect then it is the vacancy
+                    Defect = ("V_{}".format(atH.name), atH.pos)
+                    break
+
+        elif numAtomsD > numAtomsH:
+            defectType = 'interstitial'
+
+            if atomCountH.keys() == atomCountD.keys():
+
+                defectType = 'Self-interstitial'
+
+                for atD in atomsD:
+                    for atH in atomsH:
+
+                        if atH.name == atD.name and np.sum(abs(atD.pos - atH.pos) < threshold) == 3:
+                            
+                            break
+
+                        else:
+
+                            Defect = (atD.name + "_i", atD.pos)
+                            break
+                
+
+            else:
+
+                setH = set(atomCountH.key())
+                setD = set(atomCountD.keys())
+
+                #extracts the extra defect atom not present in  host
+                interstitial = str(setD - setH)[2:-2]
+                
+                Defect = (interstitial + "_i", atomCountD[interstitial])
+
+        return Defect
+        
+    def potAlign(self, hostP, defectP, cellH, cellD, radH, radD):
         
         """ Currently planar averages
 
-        index = index of defect in the pristine host cell
+        host, defect: host and defect potential cube files
+        cellH, cellD: host and defect cell objects
+        radH, radD:  lists specifying the radius to use in the spherical averaging.
+                     The lists must have the same number of elements as atoms in the defect cell
 
+        Plots the sphere averaged potential of the host and defect cells as a function of distance to the defect and the difference.
+        A slider on the plot can be used to specify how far from the defect to start averaging the difference.
 
-        1. Average potential over same atom type
-        2. take difference between average and actual
-        3. Exclude atom if difference is beyond threshold (want potential at atomic sites far away from defect)
-        4. Take the difference between potentail of defect and host at accepetible atomic sites then average for alignment
+        returns: a tuple with 4 elements containing the ploted information for further analyis. The first 2 elements are arrays containing atomic sphere averaged potential for host and corresponding distance from the defect. The last 2 elements contain the same information but for the defect cell
         """
-        hostPot = cellH.atomSphereAvg(host, radH)
-        defectPot = cellD.atomSphereAvg(defect, radD)
-        defectAtom = cellH.atoms[index]
+
+        #identify position of defect in unit cell
+        defect = self.findDefect(cellH, cellD)
+        defectPos = defect[1]
+        print("The defect is ", defect)
+
+        #use defect type to modify host and defect atoms list
+
+        thr = 0.001 #threshold for determining equivalent positions
         
-        lattice = cellD.lattice
-        atomPos = []
-        print(len(defectPot), len(hostPot))
-        #compute distance to defect
-        for at in atomsD:
+        #if the defect is a vacancy
+        if defect[0].split("_")[0] == 'V':
+
+            index = 0
+            for i, at in enumerate(cellH.atoms):
+                
+                if np.sum(abs(at.pos - defectPos) < thr) == 3:
+                    
+                    index = i
+
+            cellH.atoms.pop(index)
+            print("The index was ", index)
+            
+        #if the defect is an interstitial
+        elif defect[0].split("_")[1] == 'i':
+
+            index = 0
+            for i, at in enumerate(cellD.atoms):
+                
+                if np.sum(abs(at.pos - defectPos) < thr):
+
+                    index = i
+
+            cellH.atoms.pop(index)
+            cellD.atoms.pop(index)
+
+        #substitutional defect
+        elif defect[0].split("_")[0].isalpha():
+
+            index = 0
+            for i, at in enumerate(cellD.atoms):
+                
+                if np.sum(abs(at.pos - defectPos) < thr) == 3:
+
+                    index = i
+
+            cellD.atoms.pop(index)
+            
+        
+        else:
+            print("error no defects found")
+            return
+
+
+
+            
+        #find sphere averaged potential of host and defect cells
+        hostPot = cellH.atomSphereAvg(hostP, radH, 10)
+        defectPot = cellD.atomSphereAvg(defectP, radD, 10)
+        
+        lattice = cellD.lattice * cellD.alat
+
+        #Distance of atoms from defect site
+        atomPosD = []
+        atomPosH = []
+        
+        #compute distance to defect for Defect cell
+        for at in cellD.atoms:
             positions = []
             for i in [-1, 0, 1]:
                 for j in [-1, 0, 1]:
                     for k in [-1, 0, 1]:
+                        
                         R = i * lattice[:, 0] + j * lattice[:, 1] + k * lattice[:, 2]
-                        positions.append( norm(at.pos - (defectPos + R)) )
+                        positions.append( norm(dot(lattice, at.pos + R - defectPos)) )
                         
-            atomPos.append(min(positions))
+            atomPosD.append(min(positions))
+
+            
+        #distance of host atoms to defect cell
+        for at in cellH.atoms:
+            positions = []
+            for i in [-1, 0, 1]:
+                for j in [-1, 0, 1]:
+                    for k in [-1, 0, 1]:
                         
+                        R = i * lattice[:, 0] + j * lattice[:, 1] + k * lattice[:, 2]
+                        positions.append( norm(dot(lattice, at.pos + R - defectPos)) )
+                        
+            atomPosH.append(min(positions))
             
+        from matplotlib.widgets import Slider
 
-        
-        avgPot = np.average(defectPot)
-        std = np.std(defectPot)
-    
-        include = list( range(len(defectPot)) )
-        
-        #include only those atoms in defect cell whose potential is within 1 std of the average defect potential
-        copyDefectPot = list(defectPot)
+        atomPosD = np.array(atomPosD)
+        atomPosH = np.array(atomPosH)
+        defectPot = np.array(defectPot)
+        hostPot = np.array(hostPot)
 
-        
-        #average the potential for defects at equivalent sites
-        #find positions with the same distance from the defect
-        sames = []
-        for i in range(len(atomPos)):
-            same = []
-            for j in range(len(atomPos)):
+        diff = defectPot - hostPot
+       
+        #plots the defect and host potentials on one axis and the difference on another
+        plt.subplot(121)
+        p, = plt.plot(atomPosH, hostPot, 'o')
+        plt.plot(atomPosD, defectPot, 'o')
+        plt.title("Defect and host potentials", size=15)
+        plt.xlabel("Distance From Defect (bohr)", size=15)
+        plt.ylabel("Sphere averaged $V_{loc} + V_{H}$ (Ry)", size=15)
+        plt.subplot(122)
+        plt.title("Difference between host and defect potentials", size=15)
+        plt.xlabel("Distance From Defect (bohr)", size=15)
+        plt.plot(atomPosD, diff, 'o')
+        plt.subplots_adjust(bottom=0.25)
 
-                if abs(atomPos[i] - atomPos[j]) < 0.0001:
-                    same.append(j)
-            sames.append(same)
+        #Slider widget for specifying how far away from the defect to start averaging the difference potential
+        AxSliderPos = plt.axes([0.1, 0.05, 0.8, 0.025])
+        sliderPos = Slider(ax=AxSliderPos, label='Average From:', valmin=0, valmax=max(atomPosD), valinit=0)
+        
+        t = plt.gcf().text(0.02, 0.155, "Average: " + str(np.average(diff[atomPosD > 0])) + " Ry", fontsize=8)
+        def updateText(val):
+            avg = np.average(diff[atomPosD > sliderPos.val])
 
-        sames = [tuple( sorted(i)  ) for i in sames]
-        sames = set(sames)
-        sames = list(map(list, sames))
-        print(sames)
-        
-        difference = np.array(defectPot) - np.array(hostPot)
-        newPot = []
-        newDist = []
-        for same in sames:
-            newPot.append(np.average(difference[same]))
-            newDist.append(atomPos[same[0]])
-            
-        newPot = np.array(newPot)
-        newDist = np.array(newDist)
-            
-        
-        
-        import matplotlib.pyplot as plt
-        
-        #plot against distance to defect
-        plt.plot(newDist, newPot, 'o')
+            #if slider goes beyond furthest atom, there is nothing to average and np.average returns nan
+            if math.isnan(avg):
+                avg = 0
+                
+            t.set_text("Average: " + str(avg) + " Ry")
+            p.set_data(atomPosH, hostPot + avg)
+            plt.draw()
+
+        sliderPos.on_changed(updateText)
         plt.show()
+       
+        return (hostPot, atomPosH, defectPot, atomPosD)
+        
        
 
 
